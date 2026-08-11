@@ -1,0 +1,24 @@
+# Normalise line endings in text so Windows and Linux checkouts agree.
+* text=auto eol=lf
+
+# Binary files must never be line-ending converted. Without this, core.autocrlf
+# on Windows rewrites LF to CRLF inside the PDF on checkout and the fixture
+# arrives corrupted in a fresh clone — the ingestion tests then fail for reasons
+# that look nothing like the cause.
+*.pdf   binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.ico   binary
+*.woff  binary
+*.woff2 binary
+*.pptx  binary
+*.docx  binary
+*.xlsx  binary
+*.zip   binary
+
+# Generated — collapse in diffs and exclude from language stats.
+package-lock.json  linguist-generated=true -diff
+lib/db/types.ts    linguist-generated=true
