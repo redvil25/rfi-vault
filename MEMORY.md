@@ -18,10 +18,13 @@
 |---|---|
 | Supabase project | `rfi-vault`, ref `dpgiaehimkltizdrbusg`, **eu-central-1 (Frankfurt)**, Postgres 17 |
 | API URL | `https://dpgiaehimkltizdrbusg.supabase.co` |
-| Migrations applied | 0001–0012 |
-| Schema | 10 tables, 6 enums, 14 RLS policies (all `to authenticated`), 31 indexes, 3 search functions |
+| Migrations applied | 0001–0013 |
+| Schema | 10 tables, 6 enums, 14 RLS policies (all `to authenticated`), 5 search functions |
 | Advisors | security 0 lints · performance 0 WARN |
-| Still needed | service role key (dashboard → Project Settings → API keys), Gemini API key, GitHub remote |
+| Corpus | 130 trials · 348 RFI documents · **940 considerations** · 849 reusable · 15 Member States |
+| Demo users | 5, password `RfiVault!Demo2026` — see `scripts/seed/run.ts` |
+| Smoke test | `npm run verify` — 11/11 passing |
+| Still needed | Gemini API key (placeholder for now), GitHub remote |
 
 ## 1. Fixed facts about the competition
 
@@ -69,6 +72,12 @@
 | 2026-08-11 | Moving pgvector out of `public` (advisor lint 0014) breaks any function that pins `search_path = public`, because the `vector` type and `<=>` operator stop resolving. Fix is `search_path = public, extensions`. | Migrations 0010 → 0011; all three search functions re-verified after the move. |
 | 2026-08-11 | Wrapping `auth.uid()` / `current_team()` in a scalar subquery in RLS policies turns per-row evaluation into a per-statement InitPlan. | Cleared 7 `auth_rls_initplan` warnings (0012). |
 | 2026-08-11 | Supabase security advisors: **0 lints**. Performance advisors: 0 WARN, only INFO `unused_index` — expected on an empty corpus, recheck after seeding. | `get_advisors` after migration 0012. |
+| 2026-08-11 | **A denied write through PostgREST returns success, not an error.** With no UPDATE/DELETE policy, the statement matches zero rows, so `error` is null. Our first audit-immutability test passed vacuously in the wrong direction. Assert **row counts**, never absence of an error. | `npm run verify` — the check failed as written, then passed once rewritten to compare counts before/after and to test the trigger separately via the service role. |
+| 2026-08-11 | Audit immutability has two independent layers that fail differently: RLS (silent zero-row no-op for normal users) and the trigger (hard exception, survives even a compromised service key). Demo the second one. | `npm run verify`, last three checks. |
+| 2026-08-11 | `import 'server-only'` cannot be resolved by tsx, so any module imported by both Next and a node script must use a `typeof window` runtime guard instead. | Seed script crashed on `lib/db/service.ts` until changed. |
+| 2026-08-11 | `dotenv/config` reads `.env` only; Next reads `.env.local`. Node scripts need an explicit loader (`scripts/load-env.ts`) imported **first**. | Seed script failed env validation until added. |
+| 2026-08-11 | Next 16 renamed the `middleware.ts` convention to **`proxy.ts`** with an exported `proxy()` function. Supabase's published SSR guide still says middleware. | `node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/proxy.md`. |
+| 2026-08-11 | Manual search works with no AI at all: weighted `tsvector` (question A, response B, document C, taxonomy D) plus verbatim identifier matching, ranked so an identifier hit always outranks a text hit. | `search_considerations()` in migration 0013; 51 hits on "proof of payment updated fee", identifier query ranks 10.0. |
 
 Things we expect to learn and should record when we do:
 - Where vector-only search fails on identifier queries (the ablation table)

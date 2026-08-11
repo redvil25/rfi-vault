@@ -93,8 +93,13 @@ npm run test:e2e         # playwright
 npm run db:migrate       # apply supabase migrations
 npm run db:types         # regenerate lib/db/types.ts from the linked project
 npm run seed             # regenerate synthetic corpus (deterministic, seed=42)
+npm run seed -- --keep   # add to the existing corpus instead of wiping it
+npm run verify           # live smoke test: RLS isolation, search, audit immutability
 npm run eval             # retrieval + risk + groundedness metrics -> docs/metrics/latest.json
 ```
+
+**Run `npm run verify` before every demo and after every migration.** It signs in as
+real users and asserts the things unit tests cannot reach.
 
 ## 6. Conventions
 

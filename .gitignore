@@ -43,6 +43,9 @@ yarn-error.log*
 /playwright-report
 /blob-report
 
+# local dev server output
+dev.log
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

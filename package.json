@@ -15,7 +15,8 @@
     "db:migrate": "supabase db push",
     "db:types": "supabase gen types typescript --linked > lib/db/types.ts",
     "seed": "tsx scripts/seed/run.ts",
-    "eval": "tsx scripts/eval/run.ts"
+    "eval": "tsx scripts/eval/run.ts",
+    "verify": "tsx scripts/verify/smoke.ts"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.41",
@@ -30,6 +31,7 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "recharts": "^3.10.1",
+    "server-only": "^0.0.1",
     "tailwind-merge": "^3.6.0",
     "zod": "^4.4.3"
   },

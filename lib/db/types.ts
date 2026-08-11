@@ -495,6 +495,59 @@ export type Database = {
           similarity: number
         }[]
       }
+      search_considerations: {
+        Args: {
+          q?: string
+          f_part?: Database["public"]["Enums"]["section_part"]
+          f_section?: string
+          f_member_state?: string
+          f_category?: string
+          f_phase?: Database["public"]["Enums"]["rfi_phase"]
+          f_submission_type?: Database["public"]["Enums"]["submission_type"]
+          f_status?: Database["public"]["Enums"]["response_status"]
+          f_from?: string
+          f_to?: string
+          sort?: string
+          lim?: number
+          off?: number
+        }
+        Returns: {
+          id: string
+          consideration_number: number
+          section_part: Database["public"]["Enums"]["section_part"]
+          section: string
+          document_name: string | null
+          member_state: string | null
+          category: string
+          consideration_text: string
+          sponsor_response_text: string | null
+          response_status: Database["public"]["Enums"]["response_status"]
+          outcome: Database["public"]["Enums"]["rfi_outcome"]
+          owner_team: Database["public"]["Enums"]["team_role"] | null
+          document_ref: string
+          submission_type: Database["public"]["Enums"]["submission_type"]
+          phase: Database["public"]["Enums"]["rfi_phase"]
+          issued_at: string
+          due_at: string | null
+          eu_trial_number: string
+          short_title: string
+          rank: number
+          matched_on: string
+          total_count: number
+        }[]
+      }
+      search_facets: {
+        Args: {
+          q?: string
+          f_part?: Database["public"]["Enums"]["section_part"]
+          f_member_state?: string
+        }
+        Returns: {
+          facet: string
+          value: string
+          count: number
+        }[]
+      }
     }
     Enums: {
       response_status: "DRAFT" | "IN_REVIEW" | "APPROVED" | "SUBMITTED"
