@@ -78,6 +78,9 @@
 | 2026-08-11 | `dotenv/config` reads `.env` only; Next reads `.env.local`. Node scripts need an explicit loader (`scripts/load-env.ts`) imported **first**. | Seed script failed env validation until added. |
 | 2026-08-11 | Next 16 renamed the `middleware.ts` convention to **`proxy.ts`** with an exported `proxy()` function. Supabase's published SSR guide still says middleware. | `node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/proxy.md`. |
 | 2026-08-11 | Manual search works with no AI at all: weighted `tsvector` (question A, response B, document C, taxonomy D) plus verbatim identifier matching, ranked so an identifier hit always outranks a text hit. | `search_considerations()` in migration 0013; 51 hits on "proof of payment updated fee", identifier query ranks 10.0. |
+| 2026-08-11 | **CTIS RFI exports need no LLM to parse.** Fixed labels and repeating blocks mean a regex parser extracts every field exactly, with zero hallucination surface. A reviewer can audit a regex; they cannot audit a prompt. AI is only needed for non-CTIS layouts. | `parseCtisRfi()`; 5/5 considerations, all fields, confidence 1.0 on the fixture. |
+| 2026-08-11 | In the PDF text layer the header renders as `...Requests for information05/08/2026 12:53` with **no space**, so a `\b` anchor before the date never matches (`n`→`0` is not a word boundary). Use `(?<!\d)` digit lookaround instead. | Found only because we built a fixture PDF; date silently parsed as null before the fix. |
+| 2026-08-11 | Rule-based category classification is viable: 5/5 correct on the fixture, incl. distinguishing `FEE_NATIONAL_UPDATE` from generic `FEE_PAYMENT_PROOF` and `ICF_LOCAL_LANGUAGE` from `ICF_CONTENT`. Section-scoping the rules is what prevents cross-talk. | `lib/ingest/classify.ts`, 20 unit tests. |
 
 Things we expect to learn and should record when we do:
 - Where vector-only search fails on identifier queries (the ablation table)

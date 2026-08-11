@@ -16,7 +16,9 @@
     "db:types": "supabase gen types typescript --linked > lib/db/types.ts",
     "seed": "tsx scripts/seed/run.ts",
     "eval": "tsx scripts/eval/run.ts",
-    "verify": "tsx scripts/verify/smoke.ts"
+    "verify": "tsx scripts/verify/smoke.ts",
+    "ingest": "tsx scripts/ingest/run.ts",
+    "fixtures:pdf": "python scripts/fixtures/make_rfi_pdf.py"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.41",
@@ -33,6 +35,7 @@
     "recharts": "^3.10.1",
     "server-only": "^0.0.1",
     "tailwind-merge": "^3.6.0",
+    "unpdf": "^1.8.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
