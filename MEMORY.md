@@ -12,6 +12,17 @@
 
 ---
 
+## 0. Live infrastructure
+
+| Item | Value |
+|---|---|
+| Supabase project | `rfi-vault`, ref `dpgiaehimkltizdrbusg`, **eu-central-1 (Frankfurt)**, Postgres 17 |
+| API URL | `https://dpgiaehimkltizdrbusg.supabase.co` |
+| Migrations applied | 0001–0012 |
+| Schema | 10 tables, 6 enums, 14 RLS policies (all `to authenticated`), 31 indexes, 3 search functions |
+| Advisors | security 0 lints · performance 0 WARN |
+| Still needed | service role key (dashboard → Project Settings → API keys), Gemini API key, GitHub remote |
+
 ## 1. Fixed facts about the competition
 
 - Problem statement **#18** — Repository for Validation RFI considerations & responses received for EU CTR submissions.
@@ -49,11 +60,15 @@
 
 ## 4. Technical learnings
 
-*(One line each, with the number that proved it. Example format below — replace when real results land.)*
+*(One line each, with the number that proved it.)*
 
 | Date | Learning | Evidence |
 |---|---|---|
-| | | |
+| 2026-08-11 | **A row-level `BEFORE DELETE` trigger does not make a table append-only.** `TRUNCATE` bypasses row-level triggers entirely, so the audit trail could be wiped by one statement. Needs a separate statement-level `BEFORE TRUNCATE` trigger. | Verified live: `truncate audit_events` succeeded before migration 0009, raises after. Both states tested. |
+| 2026-08-11 | **A Postgres RLS policy with no `TO` clause applies to `anon` as well.** `read_shared_knowledge` had no `auth.uid()` test, so an unauthenticated caller could read every approved consideration over the REST API. The Supabase security linter does **not** flag this. | Found by inspecting `pg_policies.roles`; all 14 policies now scoped `to authenticated` (migration 0012). |
+| 2026-08-11 | Moving pgvector out of `public` (advisor lint 0014) breaks any function that pins `search_path = public`, because the `vector` type and `<=>` operator stop resolving. Fix is `search_path = public, extensions`. | Migrations 0010 → 0011; all three search functions re-verified after the move. |
+| 2026-08-11 | Wrapping `auth.uid()` / `current_team()` in a scalar subquery in RLS policies turns per-row evaluation into a per-statement InitPlan. | Cleared 7 `auth_rls_initplan` warnings (0012). |
+| 2026-08-11 | Supabase security advisors: **0 lints**. Performance advisors: 0 WARN, only INFO `unused_index` — expected on an empty corpus, recheck after seeding. | `get_advisors` after migration 0012. |
 
 Things we expect to learn and should record when we do:
 - Where vector-only search fails on identifier queries (the ablation table)

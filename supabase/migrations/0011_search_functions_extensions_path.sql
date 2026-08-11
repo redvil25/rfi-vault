@@ -1,8 +1,9 @@
--- 0008_hybrid_search.sql
--- Feature 1. Vector search and full-text search run in parallel over the SAME
--- pre-filtered base set, then fuse with Reciprocal Rank Fusion (ADR-002).
--- RRF is rank-based, so no score normalisation is needed between cosine distance
--- and ts_rank_cd. k = 60 is the paper default; tune it in `npm run eval`.
+-- 0011_search_functions_extensions_path.sql
+--
+-- 0010 moved pgvector into the `extensions` schema, so every function that pins
+-- its search_path must include it to resolve the `vector` type and the `<=>`
+-- cosine-distance operator. This file is 0008 recreated with that change; 0008
+-- is kept as-is so the migration history stays forward-only and readable.
 
 create or replace function hybrid_search(
   query_text     text,
@@ -25,7 +26,7 @@ returns table (
   vector_similarity numeric
 )
 language sql stable
-set search_path = public
+set search_path = public, extensions
 as $$
 with base as (
   select e.id, e.consideration_id, e.kind, e.embedding, e.fts
@@ -77,12 +78,12 @@ $$;
 -- table (docs/05-EVALUATION.md §2). Do not delete these.
 
 create or replace function vector_search(
-  query_embed vector(768),
+  query_embed extensions.vector(768),
   match_count int default 10
 )
 returns table (consideration_id uuid, kind text, similarity numeric)
 language sql stable
-set search_path = public
+set search_path = public, extensions
 as $$
   select e.consideration_id, e.kind, (1 - (e.embedding <=> query_embed))::numeric
   from rfi_embedding e
@@ -96,7 +97,7 @@ create or replace function keyword_search(
 )
 returns table (consideration_id uuid, kind text, rank numeric)
 language sql stable
-set search_path = public
+set search_path = public, extensions
 as $$
   select e.consideration_id, e.kind,
          ts_rank_cd(e.fts, websearch_to_tsquery('english', query_text))::numeric

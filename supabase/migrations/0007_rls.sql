@@ -6,11 +6,13 @@
 alter table rfi_consideration enable row level security;
 alter table rfi_document      enable row level security;
 alter table trial             enable row level security;
+alter table rfi_embedding     enable row level security;
 alter table draft_application enable row level security;
 alter table draft_section     enable row level security;
 alter table risk_assessment   enable row level security;
 alter table audit_events      enable row level security;
 alter table user_profile      enable row level security;
+alter table ai_calls          enable row level security;
 
 -- Helper: current user's team, marked stable so the planner caches it per statement.
 create or replace function current_team() returns team_role
@@ -25,6 +27,8 @@ create policy profile_self_read on user_profile for select
 create policy trial_read on trial for select
   using (auth.uid() is not null);
 create policy document_read on rfi_document for select
+  using (auth.uid() is not null);
+create policy embedding_read on rfi_embedding for select
   using (auth.uid() is not null);
 
 -- The repository: approved and submitted responses are the shared corpus.
@@ -61,3 +65,7 @@ create policy audit_read_own_team on audit_events for select
 
 create policy audit_insert on audit_events for insert
   with check (actor_id = auth.uid());
+
+-- Cost telemetry is management information, not user data.
+create policy ai_calls_read on ai_calls for select
+  using (current_team() in ('ADMIN','CTA_MANAGEMENT'));
