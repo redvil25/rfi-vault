@@ -1,0 +1,118 @@
+'use server'
+
+import { revalidatePath } from 'next/cache'
+import { z } from 'zod'
+import { getCurrentUser } from '@/lib/db/server'
+import { analysePdf, canIngest, commitIngestion } from '@/lib/ingest/commit'
+import type { ParsedDocument } from '@/lib/ingest/parse-ctis'
+
+const MAX_BYTES = 20 * 1024 * 1024
+
+export interface AnalyseState {
+  error?: string
+  storageKey?: string
+  fileName?: string
+  pageCount?: number
+  parsed?: ParsedDocument
+}
+
+export async function analyseAction(
+  _prev: AnalyseState,
+  formData: FormData,
+): Promise<AnalyseState> {
+  const user = await getCurrentUser()
+  if (!user) return { error: 'You are not signed in.' }
+  if (!canIngest(user.team)) {
+    return { error: 'Your team is not permitted to file documents into the repository.' }
+  }
+
+  const file = formData.get('file')
+  if (!(file instanceof File) || file.size === 0) {
+    return { error: 'Choose a PDF to upload.' }
+  }
+  if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+    return { error: 'Only PDF files can be ingested.' }
+  }
+  if (file.size > MAX_BYTES) {
+    return { error: `That file is ${(file.size / 1024 / 1024).toFixed(1)} MB. The limit is 20 MB.` }
+  }
+
+  const bytes = new Uint8Array(await file.arrayBuffer())
+
+  // Cheap magic-number check: the extension and MIME type are both attacker-controlled.
+  if (!(bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46)) {
+    return { error: 'That file is not a PDF (missing the %PDF header).' }
+  }
+
+  const result = await analysePdf(bytes, file.name)
+  if (!result.ok) return { error: result.error }
+
+  return {
+    storageKey: result.storageKey,
+    fileName: file.name,
+    pageCount: result.pageCount,
+    parsed: result.parsed,
+  }
+}
+
+const overridesSchema = z.array(
+  z.object({
+    considerationNumber: z.number().int().positive(),
+    category: z.string().max(60).optional(),
+    memberState: z.string().length(2).nullable().optional(),
+  }),
+)
+
+export interface CommitState {
+  error?: string
+  success?: {
+    documentRef: string
+    trialNumber: string
+    considerationCount: number
+    overriddenCount: number
+  }
+}
+
+export async function commitAction(
+  _prev: CommitState,
+  formData: FormData,
+): Promise<CommitState> {
+  const user = await getCurrentUser()
+  if (!user) return { error: 'You are not signed in.' }
+  if (!canIngest(user.team)) {
+    return { error: 'Your team is not permitted to file documents into the repository.' }
+  }
+
+  const storageKey = formData.get('storageKey')
+  if (typeof storageKey !== 'string' || !storageKey.startsWith('ingest/')) {
+    return { error: 'The upload reference is missing or malformed. Start again.' }
+  }
+
+  let overrides: z.infer<typeof overridesSchema> = []
+  const raw = formData.get('overrides')
+  if (typeof raw === 'string' && raw.trim()) {
+    const parsed = overridesSchema.safeParse(JSON.parse(raw))
+    if (!parsed.success) return { error: 'Your corrections could not be read. Start again.' }
+    overrides = parsed.data
+  }
+
+  const result = await commitIngestion({
+    storageKey,
+    actorId: user.id,
+    actorTeam: user.team!,
+    overrides,
+  })
+
+  if (!result.ok) return { error: result.error }
+
+  revalidatePath('/search')
+
+  return {
+    success: {
+      documentRef: result.documentRef,
+      trialNumber: result.trialNumber,
+      considerationCount: result.considerationCount,
+      overriddenCount: result.overriddenCount,
+    },
+  }
+}

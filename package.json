@@ -18,7 +18,9 @@
     "eval": "tsx scripts/eval/run.ts",
     "verify": "tsx scripts/verify/smoke.ts",
     "ingest": "tsx scripts/ingest/run.ts",
-    "fixtures:pdf": "python scripts/fixtures/make_rfi_pdf.py"
+    "fixtures:pdf": "python scripts/fixtures/make_rfi_pdf.py",
+    "setup:storage": "tsx scripts/setup/storage.ts",
+    "verify:ingest": "tsx scripts/verify/ingest-e2e.ts"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.41",

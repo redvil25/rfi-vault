@@ -95,6 +95,8 @@ npm run db:types         # regenerate lib/db/types.ts from the linked project
 npm run seed             # regenerate synthetic corpus (deterministic, seed=42)
 npm run seed -- --keep   # add to the existing corpus instead of wiping it
 npm run verify           # live smoke test: RLS isolation, search, audit immutability
+npm run verify:ingest    # live end-to-end ingestion test against the fixture PDF
+npm run setup:storage    # create the private rfi-documents bucket (once per project)
 npm run ingest -- <pdf>  # parse a CTIS RFI export and print the extraction (read-only)
 npm run fixtures:pdf     # regenerate fixtures/rfi-example-ctis.pdf (needs python + reportlab)
 npm run eval             # retrieval + risk + groundedness metrics -> docs/metrics/latest.json

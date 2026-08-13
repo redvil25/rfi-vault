@@ -12,6 +12,13 @@ const nextConfig: NextConfig = {
   // staying green — see CLAUDE.md §7. Next 16 no longer runs ESLint during
   // `next build`, so linting is enforced separately in CI.
   typescript: { ignoreBuildErrors: false },
+
+  experimental: {
+    // Server Actions cap request bodies at 1 MB by default, which silently
+    // rejects most real RFI PDFs. The Storage bucket enforces the same 20 MB
+    // ceiling, and the upload action validates size before doing any work.
+    serverActions: { bodySizeLimit: '20mb' },
+  },
 };
 
 export default nextConfig;

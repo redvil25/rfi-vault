@@ -15,7 +15,10 @@ export async function extractPdfText(bytes: Uint8Array): Promise<ExtractedPdf> {
   // Next bundle and CJS node scripts.
   const { extractText, getDocumentProxy } = await import('unpdf')
 
-  const pdf = await getDocumentProxy(bytes)
+  // pdf.js TRANSFERS the buffer it is given, leaving the caller's Uint8Array
+  // detached and zero-length. Callers that extract text and then upload the
+  // same bytes would silently store an empty file. Hand it a copy.
+  const pdf = await getDocumentProxy(bytes.slice())
   const { totalPages, text } = await extractText(pdf, { mergePages: true })
 
   const merged = Array.isArray(text) ? text.join('\n') : text

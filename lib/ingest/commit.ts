@@ -1,0 +1,263 @@
+import { createServiceClient } from '@/lib/db/service'
+import { CATEGORY_BY_ID } from '@/lib/domain/taxonomy'
+import { extractPdfText } from './extract-pdf'
+import { parseCtisRfi, type ParsedDocument } from './parse-ctis'
+import type { Database } from '@/lib/db/types'
+
+export const RFI_BUCKET = 'rfi-documents'
+
+/**
+ * Teams permitted to file a document into the repository. Ingestion is a
+ * submission-hub function; an Affiliate reads precedent, it does not file
+ * documents on behalf of the whole organisation.
+ */
+const INGEST_ROLES = ['EU_SUBMISSION_HUB', 'CTA_MANAGEMENT', 'ADMIN'] as const
+type TeamRole = Database['public']['Enums']['team_role']
+
+export function canIngest(team: TeamRole | null): boolean {
+  return team !== null && (INGEST_ROLES as readonly string[]).includes(team)
+}
+
+export interface ConsiderationOverride {
+  considerationNumber: number
+  category?: string
+  memberState?: string | null
+}
+
+export interface CommitInput {
+  storageKey: string
+  actorId: string
+  actorTeam: TeamRole
+  overrides: ConsiderationOverride[]
+}
+
+export type CommitResult =
+  | {
+      ok: true
+      documentId: string
+      documentRef: string
+      trialNumber: string
+      considerationCount: number
+      overriddenCount: number
+    }
+  | { ok: false; error: string }
+
+/**
+ * Writes a reviewed extraction into the repository.
+ *
+ * The parse is redone here from the stored file rather than trusting anything
+ * posted back by the client. Only the reviewer's explicit overrides are taken
+ * from the request, and each is matched to a consideration by number — so a
+ * tampered payload can change a category, which the audit trail records, but
+ * cannot inject consideration text that was never in the document.
+ *
+ * Writes go through the service client on purpose. Filing a document creates
+ * rows owned by *other* teams (a fee RFI is owned by the Affiliate even when
+ * the Hub files it), which the `insert_own_team` policy correctly forbids.
+ * Authorisation is therefore enforced here, before any write, and every commit
+ * emits an audit event naming the actor. See ADR-013.
+ */
+export async function commitIngestion(input: CommitInput): Promise<CommitResult> {
+  if (!canIngest(input.actorTeam)) {
+    return { ok: false, error: 'Your team is not permitted to file documents.' }
+  }
+
+  const db = createServiceClient()
+
+  // --- Re-read and re-parse from storage ---------------------------------
+  const { data: blob, error: dlErr } = await db.storage
+    .from(RFI_BUCKET)
+    .download(input.storageKey)
+
+  if (dlErr || !blob) {
+    return { ok: false, error: `Could not read the uploaded file: ${dlErr?.message ?? 'not found'}` }
+  }
+
+  const bytes = new Uint8Array(await blob.arrayBuffer())
+  const extracted = await extractPdfText(bytes)
+  const parsed = parseCtisRfi(extracted.text)
+
+  if (!parsed.documentRef || !parsed.euTrialNumber) {
+    return {
+      ok: false,
+      error: 'The document has no readable document reference or trial number, so it cannot be filed.',
+    }
+  }
+  if (parsed.considerations.length === 0) {
+    return { ok: false, error: 'No considerations were found in the document.' }
+  }
+
+  // --- Reject duplicates -------------------------------------------------
+  const { data: existing } = await db
+    .from('rfi_document')
+    .select('id')
+    .eq('document_ref', parsed.documentRef)
+    .maybeSingle()
+
+  if (existing) {
+    return {
+      ok: false,
+      error: `${parsed.documentRef} has already been filed. Nothing was changed.`,
+    }
+  }
+
+  // --- Trial -------------------------------------------------------------
+  const memberStates = [
+    ...new Set(parsed.considerations.map((c) => c.memberState).filter((m): m is string => !!m)),
+  ]
+
+  const { data: trial, error: trialErr } = await db
+    .from('trial')
+    .upsert(
+      {
+        eu_trial_number: parsed.euTrialNumber,
+        // The RFI export carries no trial title; a reviewer can correct this later.
+        short_title: `Trial ${parsed.euTrialNumber}`,
+        member_states: memberStates,
+      },
+      { onConflict: 'eu_trial_number', ignoreDuplicates: false },
+    )
+    .select('id')
+    .single()
+
+  if (trialErr || !trial) {
+    return { ok: false, error: `Could not record the trial: ${trialErr?.message}` }
+  }
+
+  // --- Document ----------------------------------------------------------
+  const { data: doc, error: docErr } = await db
+    .from('rfi_document')
+    .insert({
+      trial_id: trial.id,
+      document_ref: parsed.documentRef,
+      submission_type: parsed.submissionType ?? 'INITIAL',
+      // Validation is the scope of the problem statement and the default when
+      // the export does not say otherwise.
+      phase: 'VALIDATION',
+      issued_at: parsed.issuedAt ?? new Date().toISOString(),
+      source_file_path: input.storageKey,
+      page_count: extracted.pageCount,
+    })
+    .select('id')
+    .single()
+
+  if (docErr || !doc) {
+    return { ok: false, error: `Could not record the document: ${docErr?.message}` }
+  }
+
+  // --- Considerations ----------------------------------------------------
+  const overrideByNumber = new Map(input.overrides.map((o) => [o.considerationNumber, o]))
+  let overriddenCount = 0
+
+  const rows = parsed.considerations.map((c) => {
+    const o = overrideByNumber.get(c.considerationNumber)
+
+    const category =
+      o?.category && CATEGORY_BY_ID.has(o.category) ? o.category : c.category
+    const memberState =
+      o && 'memberState' in o ? (o.memberState || null) : c.memberState
+
+    if (category !== c.category || memberState !== c.memberState) overriddenCount++
+
+    return {
+      document_id: doc.id,
+      trial_id: trial.id,
+      consideration_number: c.considerationNumber,
+      section_part: c.sectionPart ?? 'PART_I',
+      section: c.section ?? c.sectionRaw ?? 'Regulatory',
+      document_name: c.documentName,
+      member_state: memberState,
+      category,
+      consideration_text: c.considerationText,
+      sponsor_response_text: c.sponsorResponseText,
+      // An ingested response that already exists in the export was accepted by
+      // the regulator; one still absent is open work for the owning team.
+      response_status: c.sponsorResponseText ? ('SUBMITTED' as const) : ('DRAFT' as const),
+      outcome: c.sponsorResponseText ? ('ACCEPTED' as const) : ('UNKNOWN' as const),
+      owner_team: CATEGORY_BY_ID.get(category)?.owner ?? null,
+      is_seed: false,
+    }
+  })
+
+  const { error: consErr } = await db.from('rfi_consideration').insert(rows)
+
+  if (consErr) {
+    // Roll back by hand: there is no transaction across PostgREST calls, and a
+    // document row with no considerations would be worse than nothing.
+    await db.from('rfi_document').delete().eq('id', doc.id)
+    return { ok: false, error: `Could not record the considerations: ${consErr.message}` }
+  }
+
+  // --- Audit -------------------------------------------------------------
+  const { error: auditErr } = await db.from('audit_events').insert({
+    actor_id: input.actorId,
+    actor_team: input.actorTeam,
+    entity_type: 'rfi_document',
+    entity_id: doc.id,
+    action: 'INGESTED',
+    to_status: 'SUBMITTED',
+    reason: `Filed ${parsed.documentRef} from an uploaded CTIS export`,
+    metadata: {
+      documentRef: parsed.documentRef,
+      trialNumber: parsed.euTrialNumber,
+      storageKey: input.storageKey,
+      pageCount: extracted.pageCount,
+      considerationCount: rows.length,
+      parserConfidence: parsed.confidence,
+      overriddenCount,
+      parserWarnings: parsed.warnings,
+    },
+  })
+
+  // A failed audit write must not silently succeed — it is the one record that
+  // has to exist. The document is removed rather than left unaccounted for.
+  if (auditErr) {
+    await db.from('rfi_consideration').delete().eq('document_id', doc.id)
+    await db.from('rfi_document').delete().eq('id', doc.id)
+    return { ok: false, error: `Could not write the audit event: ${auditErr.message}` }
+  }
+
+  return {
+    ok: true,
+    documentId: doc.id,
+    documentRef: parsed.documentRef,
+    trialNumber: parsed.euTrialNumber,
+    considerationCount: rows.length,
+    overriddenCount,
+  }
+}
+
+/** Uploads the PDF and returns what the parser made of it. Writes nothing to the repository. */
+export async function analysePdf(
+  bytes: Uint8Array,
+  originalName: string,
+): Promise<
+  | { ok: true; storageKey: string; parsed: ParsedDocument; pageCount: number }
+  | { ok: false; error: string }
+> {
+  const extracted = await extractPdfText(bytes)
+
+  if (extracted.looksScanned) {
+    return {
+      ok: false,
+      error:
+        'This PDF has little or no extractable text, so it is probably a scan. ' +
+        'Scanned documents need OCR, which is a known gap — see docs/02-ARCHITECTURE.md §7.',
+    }
+  }
+
+  const parsed = parseCtisRfi(extracted.text)
+
+  const db = createServiceClient()
+  const safeName = originalName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-80)
+  const storageKey = `ingest/${new Date().getFullYear()}/${crypto.randomUUID()}-${safeName}`
+
+  const { error } = await db.storage.from(RFI_BUCKET).upload(storageKey, bytes, {
+    contentType: 'application/pdf',
+    upsert: false,
+  })
+
+  if (error) return { ok: false, error: `Upload failed: ${error.message}` }
+
+  return { ok: true, storageKey, parsed, pageCount: extracted.pageCount }
+}

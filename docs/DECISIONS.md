@@ -146,6 +146,23 @@ Context · Decision · Consequences · Alternatives rejected
 
 ---
 
+## ADR-013 — Ingestion writes with elevated privileges behind an application role gate
+**2026-08-13 · Accepted**
+
+**Context.** Filing an RFI document creates consideration rows owned by *other* teams — a fee RFI belongs to the Affiliate even when the EU Submission Hub uploads the document. The `insert_own_team` policy from 0012 correctly forbids exactly that, and `trial` / `rfi_document` have no INSERT policies at all. Ingestion is not a user editing their own record; it is a system function filing on behalf of the organisation.
+
+**Decision.** `commitIngestion()` writes through the service client. Authorisation is enforced in application code before any write: only `EU_SUBMISSION_HUB`, `CTA_MANAGEMENT` and `ADMIN` may file. Every commit emits an `INGESTED` audit event naming the actor, their team, the parser confidence, and how many fields the reviewer corrected.
+
+**Consequences.**
+- This is the one place in the codebase where authorisation is not enforced by the database. It is a single function, role-gated on entry, and covered by five checks in `npm run verify:ingest`.
+- The parse is redone from the stored file at commit time rather than trusting the client payload. Only explicit per-consideration overrides are accepted, matched by consideration number — so a tampered request can change a category, which the audit trail records, but cannot inject consideration text that was never in the document.
+- There is no transaction across PostgREST calls, so failures roll back by hand. A failed audit write deletes the document rather than leaving it unaccounted for: an unaudited record is worse than no record.
+- Reads remain entirely RLS-governed. Verified: an Affiliate finds 4 of the 5 filed considerations, because the fifth is an open draft owned by RA Clinical.
+
+**Rejected.** Adding INSERT policies permitting any authenticated user to write arbitrary `owner_team` values — that is strictly weaker, since it grants the same power to every role including Affiliates, and it moves the role check into policy logic that is harder to test.
+
+---
+
 ## ADR-012 — AI SDK v7 with the Google provider directly
 **2026-08-11 · Accepted**
 
