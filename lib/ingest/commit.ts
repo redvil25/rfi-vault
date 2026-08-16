@@ -4,7 +4,8 @@ import { extractPdfText } from './extract-pdf'
 import { parseCtisRfi, type ParsedDocument } from './parse-ctis'
 import type { Database } from '@/lib/db/types'
 
-export const RFI_BUCKET = 'rfi-documents'
+export { RFI_BUCKET, MAX_UPLOAD_BYTES } from './constants'
+import { RFI_BUCKET, MAX_UPLOAD_BYTES } from './constants'
 
 /**
  * Teams permitted to file a document into the repository. Ingestion is a
@@ -237,17 +238,74 @@ export async function commitIngestion(input: CommitInput): Promise<CommitResult>
   }
 }
 
-/** Uploads the PDF and returns what the parser made of it. Writes nothing to the repository. */
-export async function analysePdf(
-  bytes: Uint8Array,
+/**
+ * Issues a one-shot signed upload URL so the browser writes the PDF straight to
+ * Storage.
+ *
+ * The file bytes never pass through the application server. That is not an
+ * optimisation: hosts cap request bodies well below our 20 MB ceiling (Vercel
+ * Serverless Functions at 4.5 MB), so routing uploads through a Server Action
+ * works locally on a small fixture and then fails in production on a real RFI
+ * export. Keeping bytes off the host also keeps the app host-agnostic (ADR-011).
+ */
+export async function createUploadTarget(
   originalName: string,
+): Promise<
+  { ok: true; storageKey: string; token: string } | { ok: false; error: string }
+> {
+  const db = createServiceClient()
+  const safeName = originalName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-80)
+  const storageKey = `ingest/${new Date().getFullYear()}/${crypto.randomUUID()}-${safeName}`
+
+  const { data, error } = await db.storage
+    .from(RFI_BUCKET)
+    .createSignedUploadUrl(storageKey)
+
+  if (error || !data) return { ok: false, error: internalError('prepare the upload', error) }
+
+  return { ok: true, storageKey, token: data.token }
+}
+
+/**
+ * Reads a freshly uploaded object back out of Storage and reports what the
+ * parser made of it. Writes nothing to the repository.
+ *
+ * Validation happens here, not in the browser: a signed URL proves the user was
+ * allowed to upload, not that what they uploaded is a PDF. Anything that fails
+ * validation is deleted rather than left sitting in the bucket.
+ */
+export async function analyseStored(
+  storageKey: string,
 ): Promise<
   | { ok: true; storageKey: string; parsed: ParsedDocument; pageCount: number }
   | { ok: false; error: string }
 > {
+  const db = createServiceClient()
+
+  const { data: blob, error } = await db.storage.from(RFI_BUCKET).download(storageKey)
+  if (error || !blob) return { ok: false, error: internalError('read the uploaded file', error) }
+
+  if (blob.size === 0) {
+    await db.storage.from(RFI_BUCKET).remove([storageKey])
+    return { ok: false, error: 'The uploaded file is empty.' }
+  }
+  if (blob.size > MAX_UPLOAD_BYTES) {
+    await db.storage.from(RFI_BUCKET).remove([storageKey])
+    return { ok: false, error: 'That file is larger than the 20 MB limit.' }
+  }
+
+  const bytes = new Uint8Array(await blob.arrayBuffer())
+
+  // Magic number: the content type sent with a signed upload is client-supplied.
+  if (!(bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46)) {
+    await db.storage.from(RFI_BUCKET).remove([storageKey])
+    return { ok: false, error: 'That file is not a PDF (missing the %PDF header).' }
+  }
+
   const extracted = await extractPdfText(bytes)
 
   if (extracted.looksScanned) {
+    await db.storage.from(RFI_BUCKET).remove([storageKey])
     return {
       ok: false,
       error:
@@ -257,17 +315,6 @@ export async function analysePdf(
   }
 
   const parsed = parseCtisRfi(extracted.text)
-
-  const db = createServiceClient()
-  const safeName = originalName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-80)
-  const storageKey = `ingest/${new Date().getFullYear()}/${crypto.randomUUID()}-${safeName}`
-
-  const { error } = await db.storage.from(RFI_BUCKET).upload(storageKey, bytes, {
-    contentType: 'application/pdf',
-    upsert: false,
-  })
-
-  if (error) return { ok: false, error: internalError('store the uploaded file', error) }
 
   return { ok: true, storageKey, parsed, pageCount: extracted.pageCount }
 }

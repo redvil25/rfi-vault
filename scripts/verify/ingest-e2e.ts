@@ -15,7 +15,9 @@ import { readFile } from 'node:fs/promises'
 import { createClient } from '@supabase/supabase-js'
 import { publicEnv } from '../../lib/env'
 import { createServiceClient } from '../../lib/db/service'
-import { analysePdf, commitIngestion, canIngest, RFI_BUCKET } from '../../lib/ingest/commit'
+import {
+  analyseStored, commitIngestion, canIngest, createUploadTarget, RFI_BUCKET,
+} from '../../lib/ingest/commit'
 import type { Database } from '../../lib/db/types'
 
 const FIXTURE = 'fixtures/rfi-example-ctis.pdf'
@@ -55,7 +57,18 @@ async function main() {
   // detached view is how an earlier version of this test passed 0 === 0.
   const originalLength = bytes.byteLength
 
-  const analysed = await analysePdf(bytes, 'rfi-example-ctis.pdf')
+  // Mirrors the browser flow: signed URL, direct upload, then server-side analysis.
+  const target = await createUploadTarget('rfi-example-ctis.pdf')
+  if (!target.ok) throw new Error(`upload target failed: ${target.error}`)
+
+  const { error: upErr } = await db.storage
+    .from(RFI_BUCKET)
+    .uploadToSignedUrl(target.storageKey, target.token, bytes, {
+      contentType: 'application/pdf',
+    })
+  if (upErr) throw new Error(`signed upload failed: ${upErr.message}`)
+
+  const analysed = await analyseStored(target.storageKey)
   if (!analysed.ok) throw new Error(`analyse failed: ${analysed.error}`)
 
   check(

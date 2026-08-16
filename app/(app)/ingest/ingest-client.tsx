@@ -4,8 +4,10 @@ import Link from 'next/link'
 import { useActionState, useState } from 'react'
 import { useFormStatus } from 'react-dom'
 import { CATEGORIES, MEMBER_STATES } from '@/lib/domain/taxonomy'
+import { createClient } from '@/lib/db/browser'
+import { RFI_BUCKET, MAX_UPLOAD_BYTES } from '@/lib/ingest/constants'
 import {
-  analyseAction, commitAction,
+  analyseStoredAction, commitAction, createUploadTargetAction,
   type AnalyseState, type CommitState,
 } from './actions'
 
@@ -33,8 +35,55 @@ function Submit({ idle, busy }: { idle: string; busy: string }) {
 }
 
 export function IngestClient() {
-  const [analyse, analyseFormAction] = useActionState<AnalyseState, FormData>(analyseAction, {})
+  const [analyse, setAnalyse] = useState<AnalyseState>({})
+  const [uploading, setUploading] = useState(false)
   const [commit, commitFormAction] = useActionState<CommitState, FormData>(commitAction, {})
+
+  /**
+   * Three steps, and the file bytes go straight from the browser to Supabase
+   * Storage in step 2 — never through this application. Routing them through a
+   * Server Action would hit the host's request-body limit (4.5 MB on Vercel)
+   * on any realistic RFI export.
+   */
+  async function handleUpload(formData: FormData) {
+    const file = formData.get('file')
+    if (!(file instanceof File) || file.size === 0) {
+      setAnalyse({ error: 'Choose a PDF to upload.' })
+      return
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setAnalyse({
+        error: `That file is ${(file.size / 1024 / 1024).toFixed(1)} MB. The limit is 20 MB.`,
+      })
+      return
+    }
+
+    setUploading(true)
+    setAnalyse({})
+    try {
+      const target = await createUploadTargetAction(file.name)
+      if (target.error || !target.storageKey || !target.token) {
+        setAnalyse({ error: target.error ?? 'Could not prepare the upload.' })
+        return
+      }
+
+      const supabase = createClient()
+      const { error } = await supabase.storage
+        .from(RFI_BUCKET)
+        .uploadToSignedUrl(target.storageKey, target.token, file, {
+          contentType: 'application/pdf',
+        })
+
+      if (error) {
+        setAnalyse({ error: `Upload failed: ${error.message}` })
+        return
+      }
+
+      setAnalyse(await analyseStoredAction(target.storageKey, file.name))
+    } finally {
+      setUploading(false)
+    }
+  }
 
   // Reviewer corrections, keyed by consideration number.
   const [overrides, setOverrides] = useState<
@@ -276,7 +325,7 @@ export function IngestClient() {
 
   // ----------------------------------------------------------------- Upload
   return (
-    <form action={analyseFormAction} className="space-y-4">
+    <form action={handleUpload} className="space-y-4">
       <div className="rounded-lg border border-dashed border-border bg-surface px-6 py-10 text-center">
         <label htmlFor="file" className="block text-sm font-medium">
           CTIS “Requests for information” export (PDF)
@@ -290,8 +339,9 @@ export function IngestClient() {
           className="mx-auto mt-4 block text-sm file:mr-3 file:rounded-md file:border-0 file:bg-accent-soft file:px-3.5 file:py-2 file:text-sm file:font-medium file:text-accent"
         />
         <p className="mx-auto mt-4 max-w-md text-xs text-muted">
-          Text-based PDFs only, up to 20 MB. Scanned documents are detected and
-          rejected rather than parsed badly — OCR is a known gap.
+          Text-based PDFs only, up to 20 MB. The file uploads directly to
+          encrypted storage. Scanned documents are detected and rejected rather
+          than parsed badly — OCR is a known gap.
         </p>
       </div>
 
@@ -301,7 +351,13 @@ export function IngestClient() {
         </p>
       )}
 
-      <Submit idle="Extract and review" busy="Extracting…" />
+      <button
+        type="submit"
+        disabled={uploading}
+        className="rounded-md bg-accent px-5 py-2.5 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60"
+      >
+        {uploading ? 'Uploading and extracting…' : 'Extract and review'}
+      </button>
     </form>
   )
 }
