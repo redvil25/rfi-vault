@@ -146,6 +146,22 @@ Context · Decision · Consequences · Alternatives rejected
 
 ---
 
+## ADR-014 — Vercel as the host, pinned to `fra1`
+**2026-08-16 · Accepted · Supersedes ADR-011**
+
+**Context.** ADR-011 deferred the hosting choice to Phase 3 and kept the app deliberately host-agnostic. That deadline arrived and the team chose Vercel.
+
+**Decision.** Deploy to Vercel from the private GitHub repository `redvil25/rfi-vault`, with functions pinned to `fra1` (Frankfurt) in `vercel.json`.
+
+**Consequences.**
+- EU data residency now holds end to end: Supabase in `eu-central-1`, functions in `fra1`. This is a line in the pitch, not a detail — the audience is a Danish pharma company.
+- `vercel.json` is the first host-specific file in the repo. It is deliberately minimal: region and framework only. The host-portability rule in `CLAUDE.md` §3 still applies to application code, so moving hosts remains a matter of deleting one file.
+- Vercel caps Serverless Function request bodies at 4.5 MB. This drove the direct-to-Storage upload path, which was the right design regardless of host and would otherwise have surfaced as a demo-day failure.
+- The in-memory rate limiter is per instance, and Vercel runs several. Documented as prototype-grade in `docs/08-SECURITY.md`; a shared window is the production fix.
+- Environment variables must be configured in the Vercel project. `NEXT_PUBLIC_*` values are inlined at build time, so a build without them produces a broken client bundle rather than a clear error.
+
+---
+
 ## ADR-013 — Ingestion writes with elevated privileges behind an application role gate
 **2026-08-13 · Accepted**
 
