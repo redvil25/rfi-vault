@@ -49,3 +49,8 @@ dev.log
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Tesseract writes its language cache to the working directory by default.
+# The vendored copy under vendor/tessdata is what we use; ignore stray downloads.
+/eng.traineddata
+*.traineddata.gz

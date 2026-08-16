@@ -36,9 +36,10 @@ export default async function IngestPage() {
       <header className="mb-6">
         <h1 className="text-xl font-semibold tracking-tight">File an RFI document</h1>
         <p className="mt-1 max-w-2xl text-sm text-muted">
-          Upload a CTIS request-for-information export. Fields are extracted by a
-          deterministic parser — no model, so nothing can be invented — and you review
-          every consideration before anything is written to the repository.
+          Upload a CTIS request-for-information export — a text PDF, a scan, or a
+          screenshot. Scans and images are read with OCR; fields are then extracted by a
+          deterministic parser, so nothing can be invented. You review every
+          consideration before anything is written to the repository.
         </p>
       </header>
 

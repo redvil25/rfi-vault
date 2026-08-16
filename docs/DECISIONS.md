@@ -146,6 +146,26 @@ Context · Decision · Consequences · Alternatives rejected
 
 ---
 
+## ADR-015 — Local OCR with Tesseract, not a vision model
+**2026-08-16 · Accepted**
+
+**Context.** The first real export the team was handed is a scan: two JPEG page images inside a PDF wrapper, with zero extractable characters. Refusing scans would refuse a large share of genuine inputs, and teams also circulate plain screenshots of CTIS.
+
+**Decision.** OCR locally with Tesseract (`tesseract.js`), rendering PDF pages via `@napi-rs/canvas`. Accept PDF, PNG, JPEG and WebP uploads, with the format decided by magic bytes rather than by filename or content type. Language data is vendored at `vendor/tessdata/eng.traineddata`. A text layer, when present, is always preferred — OCR is the fallback, never the default.
+
+**Consequences.**
+- Ingestion keeps working with AI disabled, which is the whole point of the deterministic path.
+- Deterministic: the same scan yields the same text every time, which matters for an audit trail in a way that a sampled model output does not.
+- Tesseract cannot invent text that was not on the page. A language model can, and would be doing so at the one point in the pipeline where we have no way to check it.
+- Measured 0.92 mean confidence on the sample, ~2.4 s for two pages. Extractions below 0.55 are refused rather than filed badly.
+- English only. Non-English scans and handwriting are out of scope and are refused on the confidence threshold.
+- OCR provenance and confidence are shown on the review screen and recorded in the audit event, so a reader can tell recognised text from exact text.
+- Native and WASM dependencies must be listed in `serverExternalPackages`, and the vendored language data in `outputFileTracingIncludes`, or the build fails and OCR breaks only in production.
+
+**Rejected.** Gemini vision — better on messy input, but needs an API key we deliberately do not depend on, is non-deterministic, and can hallucinate text into a regulatory record. It remains the upgrade path behind the same interface.
+
+---
+
 ## ADR-014 — Vercel as the host, pinned to `fra1`
 **2026-08-16 · Accepted · Supersedes ADR-011**
 

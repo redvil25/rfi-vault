@@ -10,7 +10,7 @@
 
 import '../load-env'
 import { readFile } from 'node:fs/promises'
-import { extractPdfText } from '../../lib/ingest/extract-pdf'
+import { extractDocument } from '../../lib/ingest/extract'
 import { parseCtisRfi } from '../../lib/ingest/parse-ctis'
 
 function truncate(s: string, n: number) {
@@ -22,21 +22,19 @@ async function main() {
   const asJson = process.argv.includes('--json')
 
   if (!file) {
-    console.error('usage: npm run ingest -- <file.pdf> [--json]')
+    console.error('usage: npm run ingest -- <file.pdf|file.png|file.jpg> [--json]')
     process.exit(1)
   }
 
   const bytes = new Uint8Array(await readFile(file))
-  const extracted = await extractPdfText(bytes)
+  const result = await extractDocument(bytes)
 
-  if (extracted.looksScanned) {
-    console.error(
-      'This PDF appears to be scanned (little or no extractable text). ' +
-        'OCR is a known gap — see docs/02-ARCHITECTURE.md §7.',
-    )
+  if (!result.ok) {
+    console.error(result.error)
     process.exit(2)
   }
 
+  const extracted = result.extraction
   const doc = parseCtisRfi(extracted.text)
 
   if (asJson) {
@@ -47,6 +45,12 @@ async function main() {
   console.log(`\nFile           ${file}`)
   console.log(`Pages          ${extracted.pageCount}`)
   console.log(`Characters     ${extracted.text.length}`)
+  console.log(
+    `Read via       ${extracted.source}` +
+      (extracted.ocrConfidence !== null
+        ? ` (OCR confidence ${extracted.ocrConfidence.toFixed(2)})`
+        : ''),
+  )
   console.log('\n--- Document header ---')
   console.log(`Trial number   ${doc.euTrialNumber ?? '(not found)'}`)
   console.log(`Document ref   ${doc.documentRef ?? '(not found)'}`)

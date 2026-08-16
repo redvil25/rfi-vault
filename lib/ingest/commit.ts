@@ -1,6 +1,6 @@
 import { createServiceClient } from '@/lib/db/service'
 import { CATEGORY_BY_ID } from '@/lib/domain/taxonomy'
-import { extractPdfText } from './extract-pdf'
+import { extractDocument, type ExtractionSource } from './extract'
 import { parseCtisRfi, type ParsedDocument } from './parse-ctis'
 import type { Database } from '@/lib/db/types'
 
@@ -85,7 +85,10 @@ export async function commitIngestion(input: CommitInput): Promise<CommitResult>
   }
 
   const bytes = new Uint8Array(await blob.arrayBuffer())
-  const extracted = await extractPdfText(bytes)
+  const extraction = await extractDocument(bytes)
+  if (!extraction.ok) return { ok: false, error: extraction.error }
+
+  const extracted = extraction.extraction
   const parsed = parseCtisRfi(extracted.text)
 
   if (!parsed.documentRef || !parsed.euTrialNumber) {
@@ -213,6 +216,8 @@ export async function commitIngestion(input: CommitInput): Promise<CommitResult>
       trialNumber: parsed.euTrialNumber,
       storageKey: input.storageKey,
       pageCount: extracted.pageCount,
+      extractionSource: extracted.source,
+      ocrConfidence: extracted.ocrConfidence,
       considerationCount: rows.length,
       parserConfidence: parsed.confidence,
       overriddenCount,
@@ -277,7 +282,14 @@ export async function createUploadTarget(
 export async function analyseStored(
   storageKey: string,
 ): Promise<
-  | { ok: true; storageKey: string; parsed: ParsedDocument; pageCount: number }
+  | {
+      ok: true
+      storageKey: string
+      parsed: ParsedDocument
+      pageCount: number
+      source: ExtractionSource
+      ocrConfidence: number | null
+    }
   | { ok: false; error: string }
 > {
   const db = createServiceClient()
@@ -296,25 +308,22 @@ export async function analyseStored(
 
   const bytes = new Uint8Array(await blob.arrayBuffer())
 
-  // Magic number: the content type sent with a signed upload is client-supplied.
-  if (!(bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46)) {
+  // Format is decided by magic bytes inside extractDocument, never by the
+  // content type sent with the signed upload, which is client-supplied.
+  const extraction = await extractDocument(bytes)
+  if (!extraction.ok) {
     await db.storage.from(RFI_BUCKET).remove([storageKey])
-    return { ok: false, error: 'That file is not a PDF (missing the %PDF header).' }
+    return { ok: false, error: extraction.error }
   }
 
-  const extracted = await extractPdfText(bytes)
+  const extracted = extraction.extraction
 
-  if (extracted.looksScanned) {
-    await db.storage.from(RFI_BUCKET).remove([storageKey])
-    return {
-      ok: false,
-      error:
-        'This PDF has little or no extractable text, so it is probably a scan. ' +
-        'Scanned documents need OCR, which is a known gap — see docs/02-ARCHITECTURE.md §7.',
-    }
+  return {
+    ok: true,
+    storageKey,
+    parsed: parseCtisRfi(extracted.text),
+    pageCount: extracted.pageCount,
+    source: extracted.source,
+    ocrConfidence: extracted.ocrConfidence,
   }
-
-  const parsed = parseCtisRfi(extracted.text)
-
-  return { ok: true, storageKey, parsed, pageCount: extracted.pageCount }
 }

@@ -22,3 +22,4 @@
 # Generated — collapse in diffs and exclude from language stats.
 package-lock.json  linguist-generated=true -diff
 lib/db/types.ts    linguist-generated=true
+*.traineddata binary

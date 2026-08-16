@@ -171,7 +171,7 @@ Log every AI call into the `ai_calls` table and put the real measured cost on a 
 Say these out loud in the Q&A. Naming your scope boundaries reads as engineering maturity, not as a gap.
 
 - No direct CTIS integration — no public write API exists; we export in a CTIS-compatible structure instead.
-- No OCR for scanned documents in v1 — flagged as a known gap with a clear path (a vision model over page images).
+- OCR is local (Tesseract) and English-only. A scanned document in another language, or handwriting, is out of scope — a vision model would be the upgrade.
 - No multi-language UI — the corpus contains local-language artefacts, but the interface is English.
 - No formal computerised-system validation — architecture is validation-ready; qualification is a real-deployment activity.
 - No production SSO — Supabase Auth stands in for what would be Entra ID / SAML in the enterprise.

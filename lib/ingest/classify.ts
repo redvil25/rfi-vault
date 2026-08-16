@@ -280,7 +280,13 @@ export function classifyConsideration(input: ClassifyInput): ClassifyResult {
   for (const rule of RULES) {
     // A section-scoped rule outside its section is ignored entirely rather than
     // merely down-weighted; that is what keeps ICF rules off IMPD text.
-    if (rule.sections && (!section || !rule.sections.includes(section))) continue
+    //
+    // An UNKNOWN section is not the same as a wrong one. Scanned documents and
+    // unusual headings ("Part II - Quality") often fail to map to the taxonomy,
+    // and skipping every scoped rule there would return UNCLASSIFIED for text
+    // that is plainly classifiable from its wording. Unknown section means all
+    // rules compete on evidence alone.
+    if (rule.sections && section !== null && !rule.sections.includes(section)) continue
 
     const hits = rule.patterns.filter((p) => p.test(text))
     if (hits.length === 0) continue

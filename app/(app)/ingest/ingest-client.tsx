@@ -5,7 +5,9 @@ import { useActionState, useState } from 'react'
 import { useFormStatus } from 'react-dom'
 import { CATEGORIES, MEMBER_STATES } from '@/lib/domain/taxonomy'
 import { createClient } from '@/lib/db/browser'
-import { RFI_BUCKET, MAX_UPLOAD_BYTES } from '@/lib/ingest/constants'
+import {
+  RFI_BUCKET, MAX_UPLOAD_BYTES, ACCEPTED_UPLOAD_ACCEPT_ATTR,
+} from '@/lib/ingest/constants'
 import {
   analyseStoredAction, commitAction, createUploadTargetAction,
   type AnalyseState, type CommitState,
@@ -48,7 +50,7 @@ export function IngestClient() {
   async function handleUpload(formData: FormData) {
     const file = formData.get('file')
     if (!(file instanceof File) || file.size === 0) {
-      setAnalyse({ error: 'Choose a PDF to upload.' })
+      setAnalyse({ error: 'Choose a PDF or image to upload.' })
       return
     }
     if (file.size > MAX_UPLOAD_BYTES) {
@@ -71,7 +73,7 @@ export function IngestClient() {
       const { error } = await supabase.storage
         .from(RFI_BUCKET)
         .uploadToSignedUrl(target.storageKey, target.token, file, {
-          contentType: 'application/pdf',
+          contentType: file.type || 'application/octet-stream',
         })
 
       if (error) {
@@ -162,6 +164,22 @@ export function IngestClient() {
             Nothing has been written to the repository yet. Extraction is deterministic —
             no model was involved — but you are the one who signs off on it.
           </p>
+
+          {analyse.source !== 'TEXT_LAYER' && (
+            <p className="mb-4 rounded-md bg-warn-soft px-3.5 py-2.5 text-sm text-warn">
+              <strong className="font-medium">
+                Read by OCR
+                {typeof analyse.ocrConfidence === 'number'
+                  ? ` (confidence ${analyse.ocrConfidence.toFixed(2)})`
+                  : ''}
+                .
+              </strong>{' '}
+              This {analyse.source === 'OCR_IMAGE' ? 'image' : 'PDF'} had no text
+              layer, so the characters below were recognised from the page rather
+              than read from the file. Check identifiers, numbers and dates
+              especially — those are where OCR errs.
+            </p>
+          )}
 
           <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
             {[
@@ -328,20 +346,21 @@ export function IngestClient() {
     <form action={handleUpload} className="space-y-4">
       <div className="rounded-lg border border-dashed border-border bg-surface px-6 py-10 text-center">
         <label htmlFor="file" className="block text-sm font-medium">
-          CTIS “Requests for information” export (PDF)
+          CTIS “Requests for information” export
         </label>
         <input
           id="file"
           name="file"
           type="file"
-          accept="application/pdf,.pdf"
+          accept={ACCEPTED_UPLOAD_ACCEPT_ATTR}
           required
           className="mx-auto mt-4 block text-sm file:mr-3 file:rounded-md file:border-0 file:bg-accent-soft file:px-3.5 file:py-2 file:text-sm file:font-medium file:text-accent"
         />
         <p className="mx-auto mt-4 max-w-md text-xs text-muted">
-          Text-based PDFs only, up to 20 MB. The file uploads directly to
-          encrypted storage. Scanned documents are detected and rejected rather
-          than parsed badly — OCR is a known gap.
+          PDF, PNG, JPEG or WebP, up to 20 MB — a text PDF, a scan, or a
+          screenshot all work. Scans and images are read with OCR, and the
+          result is shown to you before anything is filed. Uploads go directly
+          to encrypted storage.
         </p>
       </div>
 
@@ -356,7 +375,7 @@ export function IngestClient() {
         disabled={uploading}
         className="rounded-md bg-accent px-5 py-2.5 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60"
       >
-        {uploading ? 'Uploading and extracting…' : 'Extract and review'}
+        {uploading ? 'Uploading and reading…' : 'Extract and review'}
       </button>
     </form>
   )

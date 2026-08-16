@@ -72,6 +72,35 @@ const LABELS = {
 
 type LabelKey = keyof typeof LABELS
 
+/**
+ * The page header repeats on every page and lands in the middle of whichever
+ * field spans the page break — usually the sponsor response, which then ends
+ * with a trial number and half a document reference.
+ *
+ * Matching on the full document reference is not enough: OCR reads the columnar
+ * header row by row, so the reference arrives split and no single line contains
+ * it whole. These signals each appear in the header and effectively never in
+ * consideration prose.
+ */
+function isPageHeader(
+  line: string,
+  trialNumber: string | null,
+  documentRef: string | null,
+): boolean {
+  const trimmed = line.trim()
+  if (!trimmed) return false
+
+  if (trialNumber && trimmed.includes(trialNumber)) return true
+  if (documentRef && trimmed.includes(documentRef)) return true
+  if (/Requests?\s+for\s+information/i.test(trimmed)) return true
+  if (RE_DOC_REF_STEM.test(trimmed)) return true
+
+  // Orphaned continuation of a wrapped "SUBSTANTIAL MODIFICATION" header cell.
+  if (/^(SUBSTANTIAL|MODIFICATION|INITIAL|ADDITIONAL MS)$/i.test(trimmed)) return true
+
+  return false
+}
+
 function labelOf(line: string): LabelKey | null {
   for (const [key, re] of Object.entries(LABELS) as [LabelKey, RegExp][]) {
     if (re.test(line.trim())) return key
@@ -123,14 +152,64 @@ function parseSectionParts(value: string | null): {
 } {
   if (!value) return { part: null, sectionRaw: null }
 
-  // "Part I - Regulatory" | "Part II - Informed consent"
-  const m = /^Part\s+(I{1,2})\b\s*[-–]?\s*(.*)$/i.exec(value.trim())
+  // "Part I - Regulatory" | "Part II - Informed consent".
+  //
+  // OCR mangles roman numerals badly and predictably: capital I becomes a pipe
+  // or a lowercase L, so "Part I" arrives as "Part |" and "Part II" as
+  // "Part Il". Accept the confusable set and normalise, rather than losing the
+  // Part I / Part II split — which is the single most important field in the
+  // whole record.
+  // Lookahead rather than \b: "|" is not a word character, so \b never fires
+  // between it and the following space.
+  const m = /^Part\s+([IiLl|1-9]{1,3})(?=\s|[-–—]|$)\s*[-–—]?\s*(.*)$/i.exec(value.trim())
   if (!m) return { part: null, sectionRaw: value.trim() || null }
 
-  return {
-    part: m[1].toUpperCase() === 'I' ? 'PART_I' : 'PART_II',
-    sectionRaw: m[2].trim() || null,
+  const token = m[1]
+  const sectionRaw = m[2].trim() || null
+
+  // Arabic forms first, so "Part 2" is not read as a run of ones.
+  if (/^\d$/.test(token)) {
+    return {
+      part: token === '1' ? 'PART_I' : token === '2' ? 'PART_II' : null,
+      sectionRaw,
+    }
   }
+
+  const normalised = token.replace(/[iIlL|1]/g, 'I')
+  return {
+    part: normalised === 'I' ? 'PART_I' : normalised === 'II' ? 'PART_II' : null,
+    sectionRaw,
+  }
+}
+
+/** Stem of a document reference, without the trailing sequence number. */
+const RE_DOC_REF_STEM = /\b(CT-\d{4}-\d{6}-\d{2}-\d{2}(?:-[A-Z]{2}\d{2})?)\b/
+/** The sequence number always immediately precedes this fixed phrase. */
+const RE_SEQ_BEFORE_PHRASE = /\b(\d{3,})\s*[-–—]\s*Requests?\s+for\s+information/i
+
+/**
+ * Recovers the document reference.
+ *
+ * The strict form works on text-layer PDFs. Scanned exports lay the header out
+ * in columns, and OCR reads it row by row, so the reference is split by
+ * unrelated text:
+ *
+ *   CT-2024-519530-24-00-SM06-  05/08/2026 12:50
+ *   MODIFICATION 001 - Requests for information
+ *
+ * The stem and the sequence number end up separated by a date. Recovering it by
+ * proximity would pick up "12:50"; anchoring the sequence number to the fixed
+ * phrase it always precedes is reliable instead.
+ */
+function parseDocumentRef(text: string): string | null {
+  const strict = RE_DOC_REF.exec(text)?.[1]
+  if (strict) return strict
+
+  const stem = RE_DOC_REF_STEM.exec(text)?.[1]
+  const seq = RE_SEQ_BEFORE_PHRASE.exec(text)?.[1]
+  if (stem && seq) return `${stem}-${seq}`
+
+  return null
 }
 
 function parseSubmissionType(text: string): SubmissionType | null {
@@ -150,6 +229,18 @@ function parseIssuedAt(text: string): string | null {
   return Number.isNaN(date.getTime()) ? null : date.toISOString()
 }
 
+/**
+ * Rejoins identifiers broken across a line by the renderer or by OCR.
+ *
+ * A scanned export wraps the document reference mid-token:
+ *   "CT-2024-519530-24-00-SM06-\n001 - Requests for information"
+ * Used only for header-field extraction, never for consideration text, where
+ * removing a newline after a legitimate hyphen would corrupt the wording.
+ */
+function rejoinHyphenBreaks(text: string): string {
+  return text.replace(/-[ \t]*\r?\n[ \t]*/g, '-')
+}
+
 /** Joins wrapped lines. Paragraph breaks are not recoverable from the extract. */
 function joinLines(lines: string[]): string {
   return lines
@@ -166,10 +257,17 @@ export function parseCtisRfi(rawText: string): ParsedDocument {
   const warnings: string[] = []
   const text = rawText.replace(/\r\n/g, '\n')
 
-  const euTrialNumber = RE_TRIAL.exec(text)?.[1] ?? null
-  const documentRef = RE_DOC_REF.exec(text)?.[1] ?? null
-  const submissionType = parseSubmissionType(text.slice(0, 600))
-  const issuedAt = parseIssuedAt(text.slice(0, 600))
+  // Header fields are matched against a de-hyphenated copy of the whole
+  // document. Scanned exports repeat the header on every page and mangle it
+  // differently each time — page 1 of our sample loses the colon from the
+  // timestamp while page 2 keeps it — so restricting the search to the first
+  // few hundred characters loses fields that are perfectly readable further in.
+  const headerSpace = rejoinHyphenBreaks(text)
+
+  const euTrialNumber = RE_TRIAL.exec(headerSpace)?.[1] ?? null
+  const documentRef = parseDocumentRef(headerSpace)
+  const submissionType = parseSubmissionType(headerSpace)
+  const issuedAt = parseIssuedAt(headerSpace)
 
   if (!euTrialNumber) warnings.push('No EU trial number found in the document header.')
   if (!documentRef) warnings.push('No document reference found in the document header.')
@@ -204,10 +302,7 @@ export function parseCtisRfi(rawText: string): ParsedDocument {
     }
 
     if (active) {
-      // Drop repeated page headers that land inside a block.
-      if (documentRef && line.includes(documentRef) && line.includes('Requests for information')) {
-        continue
-      }
+      if (isPageHeader(line, euTrialNumber, documentRef)) continue
       ;(current[active] ??= []).push(line)
     }
   }

@@ -9,8 +9,7 @@
 
 import '../load-env'
 import { createServiceClient } from '../../lib/db/service'
-
-export const RFI_BUCKET = 'rfi-documents'
+import { RFI_BUCKET, MAX_UPLOAD_BYTES, ACCEPTED_UPLOAD_TYPES } from '../../lib/ingest/constants'
 
 async function main() {
   const db = createServiceClient()
@@ -18,17 +17,28 @@ async function main() {
   const { data: buckets, error: listErr } = await db.storage.listBuckets()
   if (listErr) throw listErr
 
-  if (buckets.some((b) => b.name === RFI_BUCKET)) {
-    console.log(`Bucket "${RFI_BUCKET}" already exists.`)
-  } else {
-    const { error } = await db.storage.createBucket(RFI_BUCKET, {
-      public: false,
-      fileSizeLimit: 20 * 1024 * 1024,
-      allowedMimeTypes: ['application/pdf'],
-    })
-    if (error) throw error
-    console.log(`Created private bucket "${RFI_BUCKET}" (PDF only, 20 MB limit).`)
+  const options = {
+    public: false,
+    fileSizeLimit: MAX_UPLOAD_BYTES,
+    // Scans and screenshots are first-class inputs, not an edge case.
+    allowedMimeTypes: [...ACCEPTED_UPLOAD_TYPES],
   }
+
+  if (buckets.some((b) => b.name === RFI_BUCKET)) {
+    // Idempotent: the accepted types changed when OCR was added, and an
+    // existing bucket would otherwise keep rejecting images at the storage
+    // layer, long after the application started accepting them.
+    const { error } = await db.storage.updateBucket(RFI_BUCKET, options)
+    if (error) throw error
+    console.log(`Bucket "${RFI_BUCKET}" already existed — settings updated.`)
+  } else {
+    const { error } = await db.storage.createBucket(RFI_BUCKET, options)
+    if (error) throw error
+    console.log(`Created private bucket "${RFI_BUCKET}".`)
+  }
+
+  console.log(`  accepted: ${ACCEPTED_UPLOAD_TYPES.join(', ')}`)
+  console.log(`  max size: ${MAX_UPLOAD_BYTES / 1024 / 1024} MB`)
 
   const { data: check } = await db.storage.listBuckets()
   const bucket = check?.find((b) => b.name === RFI_BUCKET)

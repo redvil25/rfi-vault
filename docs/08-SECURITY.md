@@ -29,7 +29,7 @@
 
 ### Input handling
 - Zod validation on every server action and search parameter.
-- Uploads: extension, MIME type, size **and `%PDF` magic bytes** are all checked — extension and MIME are attacker-controlled.
+- Uploads: size and **magic bytes** decide the format. Extension and content type are attacker-controlled and are never trusted; anything failing validation is deleted from storage rather than left in the bucket.
 - Storage keys are validated against the exact generated shape, not a `startsWith` prefix, keeping traversal segments out of the Storage API.
 - `JSON.parse` on client-supplied override data is wrapped; malformed input returns a message instead of crashing the action.
 - The commit path **re-parses from the stored file** rather than trusting the posted payload. Only explicit per-consideration overrides are honoured, matched by number — a tampered request can change a category, which the audit trail records, but cannot inject text that was never in the document.
@@ -48,7 +48,7 @@ Set for every response in `next.config.ts` and verified against a production bui
 | `X-Powered-By` | removed |
 
 ### Storage
-- Private bucket, PDF-only, 20 MB ceiling.
+- Private bucket, 20 MB ceiling, restricted to PDF, PNG, JPEG and WebP at the storage layer as well as in the application.
 - Anonymous listing returns empty and the public object path returns 400 — verified directly against the API with the anon key.
 
 ### Abuse
@@ -66,7 +66,7 @@ Set for every response in `next.config.ts` and verified against a production bui
 | Leaked-password protection disabled | **Requires a Supabase Pro plan**, so it is not available to us. Irrelevant here: the only accounts are throwaway demo logins over a synthetic corpus | Enable HaveIBeenPwned checking on Pro, alongside SSO which would supersede passwords entirely |
 | No MFA, no SSO | Demo accounts only | Entra ID / SAML through Supabase Auth |
 | Demo passwords are public | The corpus is synthetic and contains nothing real | Delete demo accounts before any real data |
-| No OCR | Scanned PDFs are detected and refused rather than parsed badly | Vision model over page images |
+| OCR is English-only | Tesseract with vendored English data. Non-English scans and handwriting are refused on a confidence threshold rather than parsed badly | Additional language packs, or a vision model |
 | No formal CSV | Out of scope for one month | Computerised-system validation as a deployment activity |
 | No dependency scanning in CI | Small, recent dependency tree | `npm audit` and Dependabot in the CI workflow |
 

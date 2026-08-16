@@ -61,6 +61,9 @@ export interface AnalyseState {
   fileName?: string
   pageCount?: number
   parsed?: ParsedDocument
+  /** How the text was obtained: an exact text layer, or OCR of a scan/image. */
+  source?: 'TEXT_LAYER' | 'OCR_PDF' | 'OCR_IMAGE'
+  ocrConfidence?: number | null
 }
 
 /**
@@ -91,6 +94,8 @@ export async function analyseStoredAction(
     fileName,
     pageCount: result.pageCount,
     parsed: result.parsed,
+    source: result.source,
+    ocrConfidence: result.ocrConfidence,
   }
 }
 
