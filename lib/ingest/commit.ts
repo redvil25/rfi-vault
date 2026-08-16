@@ -18,6 +18,16 @@ export function canIngest(team: TeamRole | null): boolean {
   return team !== null && (INGEST_ROLES as readonly string[]).includes(team)
 }
 
+/**
+ * Database errors carry schema details, constraint names and occasionally row
+ * values. They belong in the server log, not in a browser. The user gets a
+ * stable sentence; the operator gets the detail.
+ */
+function internalError(stage: string, err: unknown): string {
+  console.error(`[ingest] ${stage}:`, err)
+  return `Could not ${stage}. The document was not filed — nothing was changed.`
+}
+
 export interface ConsiderationOverride {
   considerationNumber: number
   category?: string
@@ -70,7 +80,7 @@ export async function commitIngestion(input: CommitInput): Promise<CommitResult>
     .download(input.storageKey)
 
   if (dlErr || !blob) {
-    return { ok: false, error: `Could not read the uploaded file: ${dlErr?.message ?? 'not found'}` }
+    return { ok: false, error: internalError('read the uploaded file', dlErr) }
   }
 
   const bytes = new Uint8Array(await blob.arrayBuffer())
@@ -121,7 +131,7 @@ export async function commitIngestion(input: CommitInput): Promise<CommitResult>
     .single()
 
   if (trialErr || !trial) {
-    return { ok: false, error: `Could not record the trial: ${trialErr?.message}` }
+    return { ok: false, error: internalError('record the trial', trialErr) }
   }
 
   // --- Document ----------------------------------------------------------
@@ -142,7 +152,7 @@ export async function commitIngestion(input: CommitInput): Promise<CommitResult>
     .single()
 
   if (docErr || !doc) {
-    return { ok: false, error: `Could not record the document: ${docErr?.message}` }
+    return { ok: false, error: internalError('record the document', docErr) }
   }
 
   // --- Considerations ----------------------------------------------------
@@ -185,7 +195,7 @@ export async function commitIngestion(input: CommitInput): Promise<CommitResult>
     // Roll back by hand: there is no transaction across PostgREST calls, and a
     // document row with no considerations would be worse than nothing.
     await db.from('rfi_document').delete().eq('id', doc.id)
-    return { ok: false, error: `Could not record the considerations: ${consErr.message}` }
+    return { ok: false, error: internalError('record the considerations', consErr) }
   }
 
   // --- Audit -------------------------------------------------------------
@@ -214,7 +224,7 @@ export async function commitIngestion(input: CommitInput): Promise<CommitResult>
   if (auditErr) {
     await db.from('rfi_consideration').delete().eq('document_id', doc.id)
     await db.from('rfi_document').delete().eq('id', doc.id)
-    return { ok: false, error: `Could not write the audit event: ${auditErr.message}` }
+    return { ok: false, error: internalError('write the audit event', auditErr) }
   }
 
   return {
@@ -257,7 +267,7 @@ export async function analysePdf(
     upsert: false,
   })
 
-  if (error) return { ok: false, error: `Upload failed: ${error.message}` }
+  if (error) return { ok: false, error: internalError('store the uploaded file', error) }
 
   return { ok: true, storageKey, parsed, pageCount: extracted.pageCount }
 }
