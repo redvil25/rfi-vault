@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useActionState, useState } from 'react'
+import { useActionState, useRef, useState } from 'react'
 import { useFormStatus } from 'react-dom'
 import { CATEGORIES, MEMBER_STATES } from '@/lib/domain/taxonomy'
 import { createClient } from '@/lib/db/browser'
@@ -36,10 +36,100 @@ function Submit({ idle, busy }: { idle: string; busy: string }) {
   )
 }
 
+/**
+ * Reading a scan takes the better part of ten seconds. Without named stages the
+ * page looks frozen and people click again, so each stage the client actually
+ * controls is shown as it happens.
+ */
+type Phase = 'idle' | 'preparing' | 'uploading' | 'reading'
+
+const PHASE_STEPS: { id: Exclude<Phase, 'idle'>; label: string }[] = [
+  { id: 'preparing', label: 'Preparing upload' },
+  { id: 'uploading', label: 'Uploading to encrypted storage' },
+  { id: 'reading', label: 'Reading the document' },
+]
+
+function formatBytes(bytes: number) {
+  return bytes < 1024 * 1024
+    ? `${Math.max(1, Math.round(bytes / 1024))} KB`
+    : `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+function Spinner() {
+  return (
+    <svg className="size-4 shrink-0 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" opacity="0.25" />
+      <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function Progress({ phase }: { phase: Exclude<Phase, 'idle'> }) {
+  const currentIndex = PHASE_STEPS.findIndex((s) => s.id === phase)
+
+  return (
+    <div
+      className="rounded-lg border border-border bg-surface p-5"
+      role="status"
+      aria-live="polite"
+    >
+      <ol className="space-y-2.5">
+        {PHASE_STEPS.map((step, i) => {
+          const done = i < currentIndex
+          const active = i === currentIndex
+          return (
+            <li
+              key={step.id}
+              className={`flex items-center gap-2.5 text-sm ${
+                active ? 'font-medium' : done ? 'text-muted' : 'text-muted opacity-50'
+              }`}
+            >
+              {done ? (
+                <svg className="size-4 shrink-0 text-ok" viewBox="0 0 20 20" fill="currentColor" aria-hidden>
+                  <path
+                    fillRule="evenodd"
+                    d="M16.7 5.3a1 1 0 0 1 0 1.4l-7.5 7.5a1 1 0 0 1-1.4 0L3.3 9.7a1 1 0 1 1 1.4-1.4l3.3 3.3 6.8-6.8a1 1 0 0 1 1.4 0Z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              ) : active ? (
+                <Spinner />
+              ) : (
+                <span className="size-4 shrink-0 rounded-full border border-border" />
+              )}
+              {step.label}
+              {active && step.id === 'reading' && (
+                <span className="text-xs text-muted">
+                  — scans are read with OCR, this can take a few seconds
+                </span>
+              )}
+            </li>
+          )
+        })}
+      </ol>
+
+      <div className="mt-4 h-1 overflow-hidden rounded-full bg-background">
+        <div
+          className="h-full rounded-full bg-accent transition-all duration-500"
+          style={{ width: `${((currentIndex + 0.5) / PHASE_STEPS.length) * 100}%` }}
+        />
+      </div>
+    </div>
+  )
+}
+
 export function IngestClient() {
   const [analyse, setAnalyse] = useState<AnalyseState>({})
-  const [uploading, setUploading] = useState(false)
+  const [phase, setPhase] = useState<Phase>('idle')
+  const [file, setFile] = useState<File | null>(null)
+  const [dragging, setDragging] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [commit, commitFormAction] = useActionState<CommitState, FormData>(commitAction, {})
+
+  function chooseFile(next: File | null) {
+    setFile(next)
+    setAnalyse({})
+  }
 
   /**
    * Three steps, and the file bytes go straight from the browser to Supabase
@@ -47,21 +137,20 @@ export function IngestClient() {
    * Server Action would hit the host's request-body limit (4.5 MB on Vercel)
    * on any realistic RFI export.
    */
-  async function handleUpload(formData: FormData) {
-    const file = formData.get('file')
-    if (!(file instanceof File) || file.size === 0) {
+  async function handleUpload() {
+    if (!file || file.size === 0) {
       setAnalyse({ error: 'Choose a PDF or image to upload.' })
       return
     }
     if (file.size > MAX_UPLOAD_BYTES) {
       setAnalyse({
-        error: `That file is ${(file.size / 1024 / 1024).toFixed(1)} MB. The limit is 20 MB.`,
+        error: `That file is ${formatBytes(file.size)}. The limit is 20 MB.`,
       })
       return
     }
 
-    setUploading(true)
     setAnalyse({})
+    setPhase('preparing')
     try {
       const target = await createUploadTargetAction(file.name)
       if (target.error || !target.storageKey || !target.token) {
@@ -69,6 +158,7 @@ export function IngestClient() {
         return
       }
 
+      setPhase('uploading')
       const supabase = createClient()
       const { error } = await supabase.storage
         .from(RFI_BUCKET)
@@ -81,9 +171,14 @@ export function IngestClient() {
         return
       }
 
+      setPhase('reading')
       setAnalyse(await analyseStoredAction(target.storageKey, file.name))
+    } catch (e) {
+      setAnalyse({
+        error: e instanceof Error ? e.message : 'Something went wrong during upload.',
+      })
     } finally {
-      setUploading(false)
+      setPhase('idle')
     }
   }
 
@@ -342,27 +437,91 @@ export function IngestClient() {
   }
 
   // ----------------------------------------------------------------- Upload
+  const busy = phase !== 'idle'
+
   return (
     <form action={handleUpload} className="space-y-4">
-      <div className="rounded-lg border border-dashed border-border bg-surface px-6 py-10 text-center">
-        <label htmlFor="file" className="block text-sm font-medium">
-          CTIS “Requests for information” export
-        </label>
-        <input
-          id="file"
-          name="file"
-          type="file"
-          accept={ACCEPTED_UPLOAD_ACCEPT_ATTR}
-          required
-          className="mx-auto mt-4 block text-sm file:mr-3 file:rounded-md file:border-0 file:bg-accent-soft file:px-3.5 file:py-2 file:text-sm file:font-medium file:text-accent"
-        />
-        <p className="mx-auto mt-4 max-w-md text-xs text-muted">
-          PDF, PNG, JPEG or WebP, up to 20 MB — a text PDF, a scan, or a
-          screenshot all work. Scans and images are read with OCR, and the
-          result is shown to you before anything is filed. Uploads go directly
-          to encrypted storage.
-        </p>
-      </div>
+      {busy ? (
+        <Progress phase={phase} />
+      ) : (
+        <div
+          onDragOver={(e) => {
+            e.preventDefault()
+            setDragging(true)
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault()
+            setDragging(false)
+            const dropped = e.dataTransfer.files?.[0]
+            if (!dropped) return
+            // Keep the native input in sync so the form still has the file.
+            if (fileInputRef.current) fileInputRef.current.files = e.dataTransfer.files
+            chooseFile(dropped)
+          }}
+          className={`rounded-lg border-2 border-dashed px-6 py-10 text-center transition ${
+            dragging ? 'border-accent bg-accent-soft' : 'border-border bg-surface'
+          }`}
+        >
+          <input
+            ref={fileInputRef}
+            id="file"
+            name="file"
+            type="file"
+            accept={ACCEPTED_UPLOAD_ACCEPT_ATTR}
+            className="sr-only"
+            onChange={(e) => chooseFile(e.target.files?.[0] ?? null)}
+          />
+
+          {file ? (
+            <div className="mx-auto flex max-w-md items-center gap-3 rounded-md border border-border bg-background px-3.5 py-3 text-left">
+              <svg className="size-5 shrink-0 text-ok" viewBox="0 0 20 20" fill="currentColor" aria-hidden>
+                <path
+                  fillRule="evenodd"
+                  d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm3.7-9.3a1 1 0 0 0-1.4-1.4L9 10.6 7.7 9.3a1 1 0 0 0-1.4 1.4l2 2a1 1 0 0 0 1.4 0l4-4Z"
+                  clipRule="evenodd"
+                />
+              </svg>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">{file.name}</p>
+                <p className="text-xs text-muted">
+                  {formatBytes(file.size)} · ready to extract
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (fileInputRef.current) fileInputRef.current.value = ''
+                  chooseFile(null)
+                }}
+                className="text-xs text-accent hover:underline"
+              >
+                Remove
+              </button>
+            </div>
+          ) : (
+            <>
+              <p className="text-sm font-medium">
+                Drop a CTIS “Requests for information” export here
+              </p>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="mt-3 rounded-md bg-accent-soft px-4 py-2 text-sm font-medium text-accent transition hover:opacity-80"
+              >
+                Choose a file
+              </button>
+            </>
+          )}
+
+          <p className="mx-auto mt-4 max-w-md text-xs text-muted">
+            PDF, PNG, JPEG or WebP, up to 20 MB — a text PDF, a scan, or a
+            screenshot all work. Scans and images are read with OCR, and the
+            result is shown to you before anything is filed. Uploads go directly
+            to encrypted storage.
+          </p>
+        </div>
+      )}
 
       {analyse.error && (
         <p role="alert" className="rounded-md bg-risk-soft px-3.5 py-2.5 text-sm text-risk">
@@ -372,10 +531,15 @@ export function IngestClient() {
 
       <button
         type="submit"
-        disabled={uploading}
-        className="rounded-md bg-accent px-5 py-2.5 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60"
+        disabled={busy || !file}
+        className="inline-flex items-center gap-2 rounded-md bg-accent px-5 py-2.5 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
       >
-        {uploading ? 'Uploading and reading…' : 'Extract and review'}
+        {busy && <Spinner />}
+        {phase === 'idle'
+          ? 'Extract and review'
+          : phase === 'reading'
+            ? 'Reading the document…'
+            : 'Uploading…'}
       </button>
     </form>
   )
