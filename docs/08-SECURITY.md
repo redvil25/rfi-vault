@@ -63,7 +63,7 @@ Set for every response in `next.config.ts` and verified against a production bui
 |---|---|---|
 | CSP allows `'unsafe-inline'` for scripts | Next's bootstrap requires it; the policy still blocks external script sources and framing | Nonce-based CSP threaded through `proxy.ts` |
 | Rate limiting is in-memory | Prototype scale; correct per instance | Redis or a Postgres-backed shared window |
-| Leaked-password protection disabled | Supabase project setting, dashboard-only | Enable HaveIBeenPwned checking (one toggle) |
+| Leaked-password protection disabled | **Requires a Supabase Pro plan**, so it is not available to us. Irrelevant here: the only accounts are throwaway demo logins over a synthetic corpus | Enable HaveIBeenPwned checking on Pro, alongside SSO which would supersede passwords entirely |
 | No MFA, no SSO | Demo accounts only | Entra ID / SAML through Supabase Auth |
 | Demo passwords are public | The corpus is synthetic and contains nothing real | Delete demo accounts before any real data |
 | No OCR | Scanned PDFs are detected and refused rather than parsed badly | Vision model over page images |
@@ -79,6 +79,6 @@ npm run test            # parser, classifier, rate limiter
 npm run build && npx next start -p 3100   # then curl -D - for the headers
 ```
 
-Plus the Supabase security advisors after every migration. They currently report a single warning — leaked-password protection — which is a dashboard toggle, not a code change.
+Plus the Supabase security advisors after every migration. They currently report a single warning — leaked-password protection — which is gated behind the Pro plan and is not a code change. Treat that as the expected clean state: **one known, plan-gated warning and nothing else.**
 
 **Note what the advisors did not catch.** Policies written without a `TO` clause applied to `anon` as well as `authenticated`, which meant an unauthenticated caller could read every approved consideration through the REST API. The linter passed clean while that was true. It was found by reading `pg_policies.roles` directly. Automated advisors are a floor, not a ceiling.
