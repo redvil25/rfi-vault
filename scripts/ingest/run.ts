@@ -45,12 +45,7 @@ async function main() {
   console.log(`\nFile           ${file}`)
   console.log(`Pages          ${extracted.pageCount}`)
   console.log(`Characters     ${extracted.text.length}`)
-  console.log(
-    `Read via       ${extracted.source}` +
-      (extracted.ocrConfidence !== null
-        ? ` (OCR confidence ${extracted.ocrConfidence.toFixed(2)})`
-        : ''),
-  )
+  console.log(`Read via       ${extracted.source}`)
   console.log('\n--- Document header ---')
   console.log(`Trial number   ${doc.euTrialNumber ?? '(not found)'}`)
   console.log(`Document ref   ${doc.documentRef ?? '(not found)'}`)

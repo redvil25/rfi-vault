@@ -1,22 +1,26 @@
 /**
- * One entry point for turning an uploaded file into text, whatever form it
- * arrived in.
+ * One entry point for turning an uploaded file into text.
  *
- * Both the review step and the commit step go through this, so a scanned
- * document cannot pass review and then yield nothing at commit time.
+ * Both the review step and the commit step go through this, so a document that
+ * cannot be read is refused at review rather than passing review and yielding
+ * nothing at commit time.
+ *
+ * Scope, deliberately narrowed — see ADR-021. This reads the text layer of a
+ * PDF and nothing else. Scans, photographs and screenshots are refused with an
+ * explanation rather than guessed at. The refusal path below is the seam where
+ * OCR or a vision model returns if the scope widens again; nothing else in the
+ * codebase needs to change for that.
  */
 
 import { extractPdfText } from './extract-pdf'
-import { MIN_OCR_CONFIDENCE, ocrImage, ocrPdf } from './ocr'
 
-export type ExtractionSource = 'TEXT_LAYER' | 'OCR_PDF' | 'OCR_IMAGE'
+/** One member today. Kept as a union because the field is written to the audit trail. */
+export type ExtractionSource = 'TEXT_LAYER'
 
 export interface Extraction {
   text: string
   pageCount: number
   source: ExtractionSource
-  /** Only set for OCR sources. Mean Tesseract confidence, 0–1. */
-  ocrConfidence: number | null
 }
 
 export type ExtractionResult =
@@ -42,76 +46,51 @@ function isWebp(bytes: Uint8Array): boolean {
   )
 }
 
-/** Format is decided by magic bytes, never by file name or content type. */
+/**
+ * Format is decided by magic bytes, never by file name or content type. Images
+ * are still recognised even though they are refused: "this is a picture, and
+ * pictures are not read" is a useful message, "not a PDF" is not.
+ */
 export function detectFormat(bytes: Uint8Array): 'pdf' | 'image' | null {
   if (isPdf(bytes)) return 'pdf'
   if (isPng(bytes) || isJpeg(bytes) || isWebp(bytes)) return 'image'
   return null
 }
 
+/** Refusal text lives here so the wording is identical wherever a scan is rejected. */
+export const IMAGE_REFUSAL =
+  'That is an image. Only PDF exports with a text layer can be filed — reading text ' +
+  'out of a picture is not supported. Export the request for information from CTIS ' +
+  'as a PDF and upload that.'
+
+export const SCANNED_REFUSAL =
+  'That PDF is a scan: it carries page images but no text layer, so there is nothing ' +
+  'to read. Nothing was filed. Export the request for information from CTIS as a PDF ' +
+  'rather than scanning a printout.'
+
 export async function extractDocument(bytes: Uint8Array): Promise<ExtractionResult> {
   const format = detectFormat(bytes)
 
   if (format === null) {
-    return {
-      ok: false,
-      error: 'That file is not a PDF, PNG, JPEG or WebP.',
-    }
+    return { ok: false, error: 'That file is not a PDF.' }
   }
 
   if (format === 'image') {
-    const ocr = await ocrImage(bytes)
-    if (ocr.confidence < MIN_OCR_CONFIDENCE) {
-      return {
-        ok: false,
-        error:
-          `Text could not be read reliably from that image (confidence ${ocr.confidence.toFixed(2)}). ` +
-          'A sharper or higher-resolution capture usually fixes it.',
-      }
-    }
-    return {
-      ok: true,
-      extraction: {
-        text: ocr.text,
-        pageCount: 1,
-        source: 'OCR_IMAGE',
-        ocrConfidence: ocr.confidence,
-      },
-    }
+    return { ok: false, error: IMAGE_REFUSAL }
   }
 
-  // Text-layer PDFs are always preferred: extraction is exact, where OCR is a
-  // best guess. OCR is the fallback, not the default.
   const direct = await extractPdfText(bytes)
-  if (!direct.looksScanned) {
-    return {
-      ok: true,
-      extraction: {
-        text: direct.text,
-        pageCount: direct.pageCount,
-        source: 'TEXT_LAYER',
-        ocrConfidence: null,
-      },
-    }
-  }
 
-  const ocr = await ocrPdf(bytes)
-  if (ocr.confidence < MIN_OCR_CONFIDENCE) {
-    return {
-      ok: false,
-      error:
-        `This PDF has no text layer, and OCR could not read it reliably ` +
-        `(confidence ${ocr.confidence.toFixed(2)}). A higher-resolution scan usually fixes it.`,
-    }
+  if (direct.looksScanned) {
+    return { ok: false, error: SCANNED_REFUSAL }
   }
 
   return {
     ok: true,
     extraction: {
-      text: ocr.text,
-      pageCount: ocr.pageCount,
-      source: 'OCR_PDF',
-      ocrConfidence: ocr.confidence,
+      text: direct.text,
+      pageCount: direct.pageCount,
+      source: 'TEXT_LAYER',
     },
   }
 }

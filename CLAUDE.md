@@ -96,12 +96,19 @@ npm run seed             # regenerate synthetic corpus (deterministic, seed=42)
 npm run seed -- --keep   # add to the existing corpus instead of wiping it
 npm run verify           # live smoke test: RLS isolation, search, audit immutability
 npm run verify:ingest    # live end-to-end ingestion test against the fixture PDF
-npm run verify:ocr       # OCR the scanned fixture and assert every field survives
+npm run verify:assess    # live end-to-end risk assessment against the seeded corpus
+npm run verify:dashboards # live analytics + audit checks, incl. proving audit immutability
 npm run setup:storage    # create the private rfi-documents bucket (once per project)
 npm run ingest -- <pdf>  # parse a CTIS RFI export and print the extraction (read-only)
 npm run fixtures:pdf     # regenerate fixtures/rfi-example-ctis.pdf (needs python + reportlab)
-npm run eval             # retrieval + risk + groundedness metrics -> docs/metrics/latest.json
+npm run embed            # populate rfi_embedding (needs a real Gemini key)
+npm run eval             # retrieval metrics -> docs/metrics/latest.json + the ablation table
 ```
+
+**Migrations are the only source of truth for the schema.** SQL applied through
+the dashboard or MCP without a committed migration breaks `supabase db reset`,
+and CI now fails on it (ADR-016). After applying a migration, regenerate types
+with `npm run db:types`.
 
 **Run `npm run verify` before every demo and after every migration.** It signs in as
 real users and asserts the things unit tests cannot reach.

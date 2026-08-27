@@ -64,18 +64,13 @@ const nextConfig: NextConfig = {
   // Do not advertise the framework.
   poweredByHeader: false,
 
-  // The OCR language data is read from disk at runtime, so nothing imports it
-  // and the bundler cannot trace it. Without this it is absent from the
-  // deployed function and OCR fails only in production.
-  outputFileTracingIncludes: {
-    "/**": ["./vendor/tessdata/**"],
-  },
-
-  // @napi-rs/canvas loads a platform-specific .node binary, which is not an
-  // ECMAScript module and cannot be placed in a bundle chunk. tesseract.js and
-  // unpdf pull in WASM and worker assets with the same problem. Leaving all
-  // three as runtime requires is the supported arrangement for native deps.
-  serverExternalPackages: ["@napi-rs/canvas", "tesseract.js", "unpdf"],
+  // unpdf ships WASM and worker assets that cannot live in a bundle chunk.
+  // Leaving it as a runtime require is the supported arrangement.
+  //
+  // There is no outputFileTracingIncludes any more: it existed solely to carry
+  // the Tesseract language data, and dropping OCR (ADR-021) removed both the
+  // 5 MB asset and the two native packages that came with it.
+  serverExternalPackages: ["unpdf"],
 
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];

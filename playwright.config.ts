@@ -8,9 +8,10 @@ export default defineConfig({
   testDir: './e2e',
   fullyParallel: false,
   workers: 1,
-  // OCR of a scanned document takes several seconds on the server.
-  timeout: 120_000,
-  expect: { timeout: 30_000 },
+  // Generous, but no longer for OCR: these specs sign in and read from the live
+  // EU project, so each step carries a real round trip (ADR-021 removed OCR).
+  timeout: 60_000,
+  expect: { timeout: 20_000 },
   reporter: [['list']],
   use: {
     baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:3000',

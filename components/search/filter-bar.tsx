@@ -13,7 +13,11 @@ const SELECTS: { key: string; label: string; facet?: string; options?: [string, 
   { key: 'part', label: 'Application part', facet: 'section_part' },
   { key: 'memberState', label: 'Member State', facet: 'member_state' },
   { key: 'category', label: 'Category', facet: 'category' },
-  { key: 'section', label: 'Section', facet: 'section' },
+  // Labelled "Document type" at the team's request. The underlying field is the
+  // CTIS application section part — see the note in docs/01-DOMAIN.md §5.
+  { key: 'section', label: 'Document type', facet: 'section' },
+  { key: 'therapeuticArea', label: 'Therapeutic area', facet: 'therapeutic_area' },
+  { key: 'impName', label: 'IMP', facet: 'imp_name' },
   {
     key: 'phase',
     label: 'Phase',

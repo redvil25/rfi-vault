@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { getCurrentUser } from '@/lib/db/server'
-import { canIngest } from '@/lib/ingest/commit'
+import { canIngest } from '@/lib/ingest/roles'
 import { IngestClient } from './ingest-client'
 
 export const dynamic = 'force-dynamic'

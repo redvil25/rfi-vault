@@ -6,7 +6,8 @@ import { getCurrentUser } from '@/lib/db/server'
 import {
   analyseStored, canIngest, commitIngestion, createUploadTarget,
 } from '@/lib/ingest/commit'
-import { rateLimit } from '@/lib/rate-limit'
+import { consumeRateLimit } from '@/lib/rate-limit'
+import { MAX_BATCH } from '@/lib/ingest/constants'
 import type { ParsedDocument } from '@/lib/ingest/parse-ctis'
 
 /**
@@ -40,7 +41,7 @@ export async function createUploadTargetAction(fileName: string): Promise<Upload
   const gate = await requireIngestor()
   if ('error' in gate) return { error: gate.error }
 
-  const limited = rateLimit(`ingest:upload:${gate.user.id}`, 20, 300)
+  const limited = await consumeRateLimit(`ingest:upload:${gate.user.id}`, 20, 300)
   if (!limited.allowed) {
     return { error: `Too many uploads. Try again in ${limited.retryAfterSeconds} seconds.` }
   }
@@ -61,14 +62,12 @@ export interface AnalyseState {
   fileName?: string
   pageCount?: number
   parsed?: ParsedDocument
-  /** How the text was obtained: an exact text layer, or OCR of a scan/image. */
-  source?: 'TEXT_LAYER' | 'OCR_PDF' | 'OCR_IMAGE'
-  ocrConfidence?: number | null
 }
 
 /**
- * Step 2. Reads the uploaded object back, validates it is really a PDF, and
- * returns the extraction for review. Nothing is written to the repository.
+ * Step 2. Reads the uploaded object back, validates it is really a text-layer
+ * PDF, and returns the extraction for review. Nothing is written to the
+ * repository.
  */
 export async function analyseStoredAction(
   storageKey: string,
@@ -77,7 +76,7 @@ export async function analyseStoredAction(
   const gate = await requireIngestor()
   if ('error' in gate) return { error: gate.error }
 
-  const limited = rateLimit(`ingest:analyse:${gate.user.id}`, 20, 300)
+  const limited = await consumeRateLimit(`ingest:analyse:${gate.user.id}`, 20, 300)
   if (!limited.allowed) {
     return { error: `Too many uploads. Try again in ${limited.retryAfterSeconds} seconds.` }
   }
@@ -94,8 +93,6 @@ export async function analyseStoredAction(
     fileName,
     pageCount: result.pageCount,
     parsed: result.parsed,
-    source: result.source,
-    ocrConfidence: result.ocrConfidence,
   }
 }
 
@@ -107,17 +104,45 @@ const overridesSchema = z.array(
   }),
 )
 
-export interface CommitState {
-  error?: string
-  success?: {
-    documentRef: string
-    trialNumber: string
-    considerationCount: number
-    overriddenCount: number
-  }
+const commitItemSchema = z.object({
+  storageKey: z.string().regex(STORAGE_KEY_RE, 'The upload reference is malformed'),
+  overrides: overridesSchema.default([]),
+})
+
+const commitBatchSchema = z
+  .array(commitItemSchema)
+  .min(1, 'Nothing to file')
+  .max(MAX_BATCH, `Up to ${MAX_BATCH} documents at a time`)
+
+export interface FiledDocument {
+  storageKey: string
+  documentRef: string
+  trialNumber: string
+  considerationCount: number
+  overriddenCount: number
 }
 
-/** Step 3. The reviewer approves; only now does anything reach the repository. */
+export interface RejectedDocument {
+  storageKey: string
+  error: string
+}
+
+export interface CommitState {
+  error?: string
+  filed?: FiledDocument[]
+  rejected?: RejectedDocument[]
+}
+
+/**
+ * Step 3. The reviewer approves; only now does anything reach the repository.
+ *
+ * Documents are filed one at a time and reported one at a time. A batch of four
+ * where the second is a duplicate files the other three and says so — refusing
+ * all four because of one would be worse for the user and no safer, since each
+ * document is already independently atomic inside commitIngestion(). There is no
+ * transaction spanning them and there should not be: they are separate records
+ * that happened to be uploaded together.
+ */
 export async function commitAction(
   _prev: CommitState,
   formData: FormData,
@@ -125,48 +150,54 @@ export async function commitAction(
   const gate = await requireIngestor()
   if ('error' in gate) return { error: gate.error }
 
-  const limited = rateLimit(`ingest:commit:${gate.user.id}`, 30, 300)
+  const limited = await consumeRateLimit(`ingest:commit:${gate.user.id}`, 30, 300)
   if (!limited.allowed) {
     return { error: `Too many attempts. Try again in ${limited.retryAfterSeconds} seconds.` }
   }
 
-  const storageKey = formData.get('storageKey')
-  if (typeof storageKey !== 'string' || !STORAGE_KEY_RE.test(storageKey)) {
-    return { error: 'The upload reference is missing or malformed. Start again.' }
+  const raw = formData.get('documents')
+  if (typeof raw !== 'string' || !raw.trim()) {
+    return { error: 'Nothing to file. Start again.' }
   }
 
-  let overrides: z.infer<typeof overridesSchema> = []
-  const raw = formData.get('overrides')
-  if (typeof raw === 'string' && raw.trim()) {
-    // JSON.parse throws on malformed input; unguarded it crashes the action.
-    let decoded: unknown
-    try {
-      decoded = JSON.parse(raw)
-    } catch {
-      return { error: 'Your corrections could not be read. Start again.' }
+  // JSON.parse throws on malformed input; unguarded it crashes the action.
+  let decoded: unknown
+  try {
+    decoded = JSON.parse(raw)
+  } catch {
+    return { error: 'Your corrections could not be read. Start again.' }
+  }
+
+  const parsed = commitBatchSchema.safeParse(decoded)
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0].message }
+  }
+
+  const filed: FiledDocument[] = []
+  const rejected: RejectedDocument[] = []
+
+  for (const item of parsed.data) {
+    const result = await commitIngestion({
+      storageKey: item.storageKey,
+      actorId: gate.user.id,
+      actorTeam: gate.user.team!,
+      overrides: item.overrides,
+    })
+
+    if (result.ok) {
+      filed.push({
+        storageKey: item.storageKey,
+        documentRef: result.documentRef,
+        trialNumber: result.trialNumber,
+        considerationCount: result.considerationCount,
+        overriddenCount: result.overriddenCount,
+      })
+    } else {
+      rejected.push({ storageKey: item.storageKey, error: result.error })
     }
-    const parsed = overridesSchema.safeParse(decoded)
-    if (!parsed.success) return { error: 'Your corrections could not be read. Start again.' }
-    overrides = parsed.data
   }
 
-  const result = await commitIngestion({
-    storageKey,
-    actorId: gate.user.id,
-    actorTeam: gate.user.team!,
-    overrides,
-  })
+  if (filed.length > 0) revalidatePath('/search')
 
-  if (!result.ok) return { error: result.error }
-
-  revalidatePath('/search')
-
-  return {
-    success: {
-      documentRef: result.documentRef,
-      trialNumber: result.trialNumber,
-      considerationCount: result.considerationCount,
-      overriddenCount: result.overriddenCount,
-    },
-  }
+  return { filed, rejected }
 }

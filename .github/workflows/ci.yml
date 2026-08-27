@@ -39,6 +39,111 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
           NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder
 
+
+  database:
+    name: Migrations apply from an empty database
+    runs-on: ubuntu-latest
+    # Guards the failure that shipped once already: SQL applied straight to the
+    # linked project and never committed, so a fresh `db reset` produced a
+    # database the application could not query. Needs no secrets — it builds a
+    # throwaway Postgres from supabase/migrations alone.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Start a local Supabase stack
+        run: supabase start
+
+      - name: Replay every migration from zero
+        run: supabase db reset
+
+      - name: Assert the objects the application calls actually exist
+        run: |
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -c "select 'search_considerations'::regproc;"
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -c "select 'search_facets'::regproc;"
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -c "select 'hybrid_search'::regproc;"
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -c "select fts from rfi_consideration limit 0;"
+        env:
+          DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+      # `create or replace function` with a changed argument list creates an
+      # OVERLOAD rather than replacing, and Postgres then refuses any call it
+      # cannot disambiguate. It passes migration, typecheck and build, and fails
+      # at runtime on the first search. Overloads are always a mistake in this
+      # schema, so any duplicate name fails the build (ADR-026).
+      - name: Assert no database function has duplicate signatures
+        run: |
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -c "
+            do \$\$
+            declare bad text;
+            begin
+              select string_agg(proname || ' x' || n, ', ')
+                into bad
+              from (
+                select p.proname, count(*) as n
+                from pg_proc p
+                join pg_namespace ns on ns.oid = p.pronamespace
+                where ns.nspname = 'public'
+                group by p.proname
+                having count(*) > 1
+              ) dupes;
+              if bad is not null then
+                raise exception 'functions with more than one signature: %', bad;
+              end if;
+            end
+            \$\$;"
+        env:
+          DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+      # A missing GRANT is invisible to both checks above: the objects exist and
+      # RLS is on, but the policies are never consulted because the role cannot
+      # reach the table at all. This is how 0015 came to be needed (ADR-022).
+      - name: Assert the application roles can actually reach the tables
+        run: |
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -c "
+            do \$\$
+            begin
+              if not has_table_privilege('authenticated','public.rfi_consideration','SELECT') then
+                raise exception 'authenticated cannot SELECT rfi_consideration - a GRANT is missing';
+              end if;
+              if not has_table_privilege('service_role','public.trial','INSERT') then
+                raise exception 'service_role cannot INSERT trial - seeding and ingestion will fail';
+              end if;
+              if has_table_privilege('anon','public.rfi_consideration','SELECT') then
+                raise exception 'anon can SELECT rfi_consideration - the repository is publicly readable';
+              end if;
+            end
+            \$\$;"
+        env:
+          DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+      # RLS is the authorisation boundary for this application, so "is it on"
+      # is a build-breaking question, not a review question. 0012 exists because
+      # policies were once left open to the `anon` role.
+      - name: Assert RLS is enabled on every public table
+        run: |
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -c "
+            do \$\$
+            declare bad text;
+            begin
+              select string_agg(c.relname, ', ')
+                into bad
+              from pg_class c
+              join pg_namespace n on n.oid = c.relnamespace
+              where n.nspname = 'public'
+                and c.relkind = 'r'
+                and not c.relrowsecurity;
+              if bad is not null then
+                raise exception 'tables without row level security: %', bad;
+              end if;
+            end
+            \$\$;"
+        env:
+          DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
   e2e:
     name: End-to-end
     runs-on: ubuntu-latest
