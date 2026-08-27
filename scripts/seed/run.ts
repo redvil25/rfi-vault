@@ -119,6 +119,8 @@ interface TrialRow {
   eu_trial_number: string
   short_title: string
   therapeutic_area: string
+  /** Investigational medicinal product code. Synthetic, like the rest of the corpus. */
+  imp_name: string
   phase: string
   sponsor: string
   member_states: string[]
@@ -169,10 +171,15 @@ function generate() {
     }
 
     const year = int(2023, 2026)
+    // Generated once and used in both the title and the column: a trial whose
+    // title names one product and whose imp_name says another is the kind of
+    // inconsistency a judge spots immediately.
+    const impName = `NN-${int(1000, 9999)}`
     trials.push({
       eu_trial_number: `${year}-${String(int(500000, 599999))}-${int(10, 42)}-00`,
-      short_title: `A ${pick(TRIAL_PHASES)} Trial of NN-${int(1000, 9999)} in ${area}`,
+      short_title: `A ${pick(TRIAL_PHASES)} Trial of ${impName} in ${area}`,
       therapeutic_area: area,
+      imp_name: impName,
       phase: pick(TRIAL_PHASES),
       sponsor: 'Sponsor A',
       member_states: states,
@@ -327,7 +334,10 @@ function plantDuplicateCluster(trials: TrialRow[], docs: DocRow[], cons: ConsRow
 
 // ------------------------------------------------------------------ Users
 
-async function seedUsers(db: ReturnType<typeof createServiceClient>) {
+async function seedUsers(
+  db: ReturnType<typeof createServiceClient>,
+): Promise<Map<string, string>> {
+  const ids = new Map<string, string>()
   for (const u of DEMO_USERS) {
     const { data, error } = await db.auth.admin.createUser({
       email: u.email,
@@ -351,8 +361,10 @@ async function seedUsers(db: ReturnType<typeof createServiceClient>) {
       member_state: u.ms,
     })
     if (pErr) throw pErr
+    ids.set(u.email, userId)
   }
   console.log(`  users        ${DEMO_USERS.length} (password: ${DEMO_PASSWORD})`)
+  return ids
 }
 
 // ------------------------------------------------------------------ Insert
@@ -370,14 +382,37 @@ async function main() {
     console.log('Clearing existing corpus...')
     // Cascades to rfi_document -> rfi_consideration -> rfi_embedding.
     await db.from('trial').delete().neq('eu_trial_number', '')
+
+    // The wipe is itself a state change, and audit_events has no foreign key to
+    // the corpus, so this record survives it. Reseeding therefore leaves a
+    // visible history of resets — which is exactly what an append-only trail is
+    // supposed to do, and makes the property demonstrable in the viewer.
+    const { error } = await db.from('audit_events').insert({
+      actor_team: 'ADMIN',
+      entity_type: 'corpus',
+      entity_id: '00000000-0000-0000-0000-000000000000',
+      action: 'CORPUS_RESET',
+      reason: `Corpus regenerated from seed ${SEED}`,
+      metadata: { seeded: true },
+    })
+    if (error) throw error
   }
+
+  const userIds = await seedUsers(db)
+  const hubUserId = userIds.get('hub@rfivault.demo') ?? null
 
   console.log(`Generating (seed=${SEED})...`)
   const { trials, docs, cons } = generate()
 
   const trialIds: string[] = []
   await chunked(trials, 200, async (batch) => {
-    const { data, error } = await db.from('trial').insert(batch).select('id')
+    // `imp_name` arrives with 0018 and lib/db/types.ts is generated from the
+    // linked project, so the generated Insert type does not know about it yet.
+    // Regenerate with `npm run db:types` after migrating and this cast can go.
+    const { data, error } = await db
+      .from('trial')
+      .insert(batch as never)
+      .select('id')
     if (error) throw error
     trialIds.push(...data.map((r) => r.id))
   })
@@ -429,12 +464,54 @@ async function main() {
     if (error) throw error
   })
 
+  // ---------------------------------------------------------------- Audit
+  //
+  // Seeding writes to the repository, and the Definition of Done says every
+  // state-changing action emits an audit event (CLAUDE.md §7). It was not doing
+  // so, which left the audit viewer with nothing to show and the rule quietly
+  // broken at the one place that writes the most rows.
+  //
+  // These events are truthful, not decorative: the generator really did file
+  // these documents. `seeded: true` in the metadata says who did it, so nobody
+  // mistakes them for a person's action.
+  //
+  // They are timestamped with the document's own issue date so the trail reads
+  // as a history rather than as 348 events at one instant.
+  const considerationsPerDoc = new Map<number, number>()
+  for (const c of cons) {
+    considerationsPerDoc.set(c.docIndex, (considerationsPerDoc.get(c.docIndex) ?? 0) + 1)
+  }
+
+  const auditRows = docs.map((d, i) => ({
+    occurred_at: d.issued_at,
+    actor_id: hubUserId,
+    actor_team: 'EU_SUBMISSION_HUB' as const,
+    entity_type: 'rfi_document',
+    entity_id: docIds[i],
+    action: 'INGESTED',
+    to_status: 'SUBMITTED',
+    reason: `Filed ${d.document_ref} by the corpus generator`,
+    metadata: {
+      seeded: true,
+      documentRef: d.document_ref,
+      submissionType: d.submission_type,
+      considerationCount: considerationsPerDoc.get(i) ?? 0,
+    },
+  }))
+
+  await chunked(auditRows, 500, async (batch) => {
+    const { error } = await db.from('audit_events').insert(batch)
+    if (error) throw error
+  })
+
   await seedUsers(db)
 
   console.log('\nSeeded:')
   console.log(`  trials       ${trials.length}`)
   console.log(`  documents    ${docs.length}`)
   console.log(`  considerations ${consPayload.length}`)
+  console.log(`  audit events ${docs.length + (KEEP ? 0 : 1)}`)
+  console.log('Audit events are append-only and are NOT cleared by reseeding.')
   console.log('\nDone. Corpus is synthetic and reproducible with the same seed.')
 }
 

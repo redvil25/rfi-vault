@@ -21,11 +21,12 @@
     "fixtures:pdf": "python scripts/fixtures/make_rfi_pdf.py",
     "setup:storage": "tsx scripts/setup/storage.ts",
     "verify:ingest": "tsx scripts/verify/ingest-e2e.ts",
-    "verify:ocr": "tsx scripts/verify/ocr.ts"
+    "embed": "tsx scripts/embed/run.ts",
+    "verify:assess": "tsx scripts/verify/assess.ts",
+    "verify:dashboards": "tsx scripts/verify/dashboards.ts"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.41",
-    "@napi-rs/canvas": "^1.0.6",
     "@supabase/ssr": "^0.12.4",
     "@supabase/supabase-js": "^2.112.3",
     "ai": "^7.0.59",
@@ -39,7 +40,6 @@
     "recharts": "^3.10.1",
     "server-only": "^0.0.1",
     "tailwind-merge": "^3.6.0",
-    "tesseract.js": "^7.0.0",
     "unpdf": "^1.8.0",
     "zod": "^4.4.3"
   },

@@ -1,4 +1,5 @@
 import { createServiceClient } from '@/lib/db/service'
+import { log } from '@/lib/log'
 import { CATEGORY_BY_ID } from '@/lib/domain/taxonomy'
 import { extractDocument, type ExtractionSource } from './extract'
 import { parseCtisRfi, type ParsedDocument } from './parse-ctis'
@@ -7,17 +8,12 @@ import type { Database } from '@/lib/db/types'
 export { RFI_BUCKET, MAX_UPLOAD_BYTES } from './constants'
 import { RFI_BUCKET, MAX_UPLOAD_BYTES } from './constants'
 
-/**
- * Teams permitted to file a document into the repository. Ingestion is a
- * submission-hub function; an Affiliate reads precedent, it does not file
- * documents on behalf of the whole organisation.
- */
-const INGEST_ROLES = ['EU_SUBMISSION_HUB', 'CTA_MANAGEMENT', 'ADMIN'] as const
 type TeamRole = Database['public']['Enums']['team_role']
 
-export function canIngest(team: TeamRole | null): boolean {
-  return team !== null && (INGEST_ROLES as readonly string[]).includes(team)
-}
+// Re-exported so existing importers keep working; defined in a leaf module so
+// importing it does not pull the OCR stack in with it. See ./roles.ts.
+export { canIngest, INGEST_ROLES } from './roles'
+import { canIngest } from './roles'
 
 /**
  * Database errors carry schema details, constraint names and occasionally row
@@ -25,7 +21,7 @@ export function canIngest(team: TeamRole | null): boolean {
  * stable sentence; the operator gets the detail.
  */
 function internalError(stage: string, err: unknown): string {
-  console.error(`[ingest] ${stage}:`, err)
+  log.error('ingest.stage_failed', { stage }, err)
   return `Could not ${stage}. The document was not filed — nothing was changed.`
 }
 
@@ -217,7 +213,6 @@ export async function commitIngestion(input: CommitInput): Promise<CommitResult>
       storageKey: input.storageKey,
       pageCount: extracted.pageCount,
       extractionSource: extracted.source,
-      ocrConfidence: extracted.ocrConfidence,
       considerationCount: rows.length,
       parserConfidence: parsed.confidence,
       overriddenCount,
@@ -288,7 +283,6 @@ export async function analyseStored(
       parsed: ParsedDocument
       pageCount: number
       source: ExtractionSource
-      ocrConfidence: number | null
     }
   | { ok: false; error: string }
 > {
@@ -324,6 +318,5 @@ export async function analyseStored(
     parsed: parseCtisRfi(extracted.text),
     pageCount: extracted.pageCount,
     source: extracted.source,
-    ocrConfidence: extracted.ocrConfidence,
   }
 }

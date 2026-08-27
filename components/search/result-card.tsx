@@ -1,4 +1,7 @@
 import type { SearchHit } from '@/lib/search/manual'
+import {
+  BAND_GUIDANCE, BAND_LABELS, BAND_STYLE, type ConfidenceBand,
+} from '@/lib/search/confidence'
 
 const STATUS_STYLE: Record<string, string> = {
   SUBMITTED: 'bg-ok-soft text-ok',
@@ -58,7 +61,19 @@ function Highlighted({ text, query }: { text: string; query?: string }) {
   )
 }
 
-export function ResultCard({ hit, query }: { hit: SearchHit; query?: string }) {
+/**
+ * `confidence` is present only when the semantic leg ran. A keyword-only result
+ * has no similarity to band, and inventing one would be worse than omitting it.
+ */
+export function ResultCard({
+  hit,
+  query,
+}: {
+  hit: SearchHit & { confidence?: ConfidenceBand; similarity?: number }
+  query?: string
+}) {
+  const showBand = hit.confidence !== undefined && hit.confidence !== 'NONE'
+
   const reusable =
     (hit.responseStatus === 'APPROVED' || hit.responseStatus === 'SUBMITTED') &&
     hit.outcome === 'ACCEPTED' &&
@@ -86,6 +101,15 @@ export function ResultCard({ hit, query }: { hit: SearchHit; query?: string }) {
         <span>{SUBMISSION_LABEL[hit.submissionType]}</span>
         <span aria-hidden>·</span>
         <time dateTime={hit.issuedAt}>{formatDate(hit.issuedAt)}</time>
+
+        {showBand && (
+          <span
+            className={`ml-auto rounded px-1.5 py-0.5 font-medium ${BAND_STYLE[hit.confidence!]}`}
+            title={`cosine similarity ${hit.similarity?.toFixed(3)} — ${BAND_GUIDANCE[hit.confidence!]}`}
+          >
+            {BAND_LABELS[hit.confidence!]}
+          </span>
+        )}
       </div>
 
       <p className="text-[13px] leading-relaxed">
@@ -112,6 +136,18 @@ export function ResultCard({ hit, query }: { hit: SearchHit; query?: string }) {
         <code className="font-mono">{hit.documentRef}</code>
         <span aria-hidden>·</span>
         <span>{hit.shortTitle}</span>
+        {hit.impName && (
+          <>
+            <span aria-hidden>·</span>
+            <span className="font-mono">{hit.impName}</span>
+          </>
+        )}
+        {hit.therapeuticArea && (
+          <>
+            <span aria-hidden>·</span>
+            <span>{hit.therapeuticArea}</span>
+          </>
+        )}
         <span className="ml-auto rounded bg-background px-1.5 py-0.5">
           matched on {hit.matchedOn}
         </span>

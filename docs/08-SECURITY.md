@@ -66,7 +66,7 @@ Set for every response in `next.config.ts` and verified against a production bui
 | Leaked-password protection disabled | **Requires a Supabase Pro plan**, so it is not available to us. Irrelevant here: the only accounts are throwaway demo logins over a synthetic corpus | Enable HaveIBeenPwned checking on Pro, alongside SSO which would supersede passwords entirely |
 | No MFA, no SSO | Demo accounts only | Entra ID / SAML through Supabase Auth |
 | Demo passwords are public | The corpus is synthetic and contains nothing real | Delete demo accounts before any real data |
-| OCR is English-only | Tesseract with vendored English data. Non-English scans and handwriting are refused on a confidence threshold rather than parsed badly | Additional language packs, or a vision model |
+| Only text-layer PDFs are ingested | Scans and images are refused with an explanation and nothing is written, rather than parsed badly (ADR-021). The refusal is covered by unit and browser tests | OCR or a vision model behind the same `extractDocument()` interface |
 | No formal CSV | Out of scope for one month | Computerised-system validation as a deployment activity |
 | No dependency scanning in CI | Small, recent dependency tree | `npm audit` and Dependabot in the CI workflow |
 

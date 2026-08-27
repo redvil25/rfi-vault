@@ -1,0 +1,49 @@
+{
+  "generatedAt": "2026-08-26T15:33:50.494Z",
+  "corpusSize": 941,
+  "embeddingCount": 0,
+  "goldQueries": 41,
+  "goldSource": "derived from seed ground truth — see scripts/eval/gold.ts",
+  "cutoffs": {
+    "recall": 5,
+    "rank": 10
+  },
+  "results": [
+    {
+      "name": "Keyword only (ts_rank_cd)",
+      "ran": true,
+      "recallAt5": 0.6341,
+      "mrrAt10": 0.6341,
+      "ndcgAt10": 0.6341,
+      "p50Ms": 198,
+      "p95Ms": 448,
+      "byType": {
+        "identifier": {
+          "recallAt5": 1,
+          "ndcgAt10": 1,
+          "queries": 25
+        },
+        "semantic": {
+          "recallAt5": 0,
+          "ndcgAt10": 0,
+          "queries": 10
+        },
+        "mixed": {
+          "recallAt5": 0.1667,
+          "ndcgAt10": 0.1667,
+          "queries": 6
+        }
+      }
+    },
+    {
+      "name": "Vector only (pgvector cosine)",
+      "ran": false,
+      "reason": "GOOGLE_GENERATIVE_AI_API_KEY is not set"
+    },
+    {
+      "name": "Hybrid (RRF)",
+      "ran": false,
+      "reason": "GOOGLE_GENERATIVE_AI_API_KEY is not set"
+    }
+  ]
+}

@@ -23,6 +23,8 @@ export const searchParamsSchema = z.object({
   section: z.string().trim().max(100).optional(),
   memberState: z.string().trim().length(2).toUpperCase().optional(),
   category: z.string().trim().max(60).optional(),
+  therapeuticArea: z.string().trim().max(80).optional(),
+  impName: z.string().trim().max(40).optional(),
   phase: z.enum(['VALIDATION', 'ASSESSMENT_PART_I', 'ASSESSMENT_PART_II']).optional(),
   submissionType: z
     .enum(['INITIAL', 'SUBSTANTIAL_MODIFICATION', 'ADDITIONAL_MS'])
@@ -57,6 +59,8 @@ export interface SearchHit {
   dueAt: string | null
   euTrialNumber: string
   shortTitle: string
+  therapeuticArea: string | null
+  impName: string | null
   rank: number
   matchedOn: string
 }
@@ -70,30 +74,8 @@ export interface SearchResult {
   tookMs: number
 }
 
-interface SearchRow {
-  id: string
-  consideration_number: number
-  section_part: Enums['section_part']
-  section: string
-  document_name: string | null
-  member_state: string | null
-  category: string
-  consideration_text: string
-  sponsor_response_text: string | null
-  response_status: Enums['response_status']
-  outcome: Enums['rfi_outcome']
-  owner_team: Enums['team_role'] | null
-  document_ref: string
-  submission_type: Enums['submission_type']
-  phase: Enums['rfi_phase']
-  issued_at: string
-  due_at: string | null
-  eu_trial_number: string
-  short_title: string
-  rank: number
-  matched_on: string
-  total_count: number
-}
+/** One row as `search_considerations` returns it, straight from the generated types. */
+type SearchRow = Database['public']['Functions']['search_considerations']['Returns'][number]
 
 function toHit(r: SearchRow): SearchHit {
   return {
@@ -116,6 +98,8 @@ function toHit(r: SearchRow): SearchHit {
     dueAt: r.due_at,
     euTrialNumber: r.eu_trial_number,
     shortTitle: r.short_title,
+    therapeuticArea: r.therapeutic_area,
+    impName: r.imp_name,
     rank: r.rank,
     matchedOn: r.matched_on,
   }
@@ -138,6 +122,8 @@ export async function searchConsiderations(
     f_status: params.status ?? undefined,
     f_from: params.from ?? undefined,
     f_to: params.to ?? undefined,
+    f_therapeutic_area: params.therapeuticArea ?? undefined,
+    f_imp_name: params.impName ?? undefined,
     sort: params.sort,
     lim: params.pageSize,
     off: (params.page - 1) * params.pageSize,
@@ -145,7 +131,7 @@ export async function searchConsiderations(
 
   if (error) throw new Error(`search_considerations failed: ${error.message}`)
 
-  const rows = (data ?? []) as unknown as SearchRow[]
+  const rows = data ?? []
   const total = rows.length > 0 ? Number(rows[0].total_count) : 0
 
   return {
@@ -168,6 +154,8 @@ export async function searchFacets(params: {
   q?: string
   part?: Enums['section_part']
   memberState?: string
+  therapeuticArea?: string
+  impName?: string
 }): Promise<Record<string, Facet[]>> {
   const supabase = await createClient()
 
@@ -175,13 +163,19 @@ export async function searchFacets(params: {
     q: params.q ?? undefined,
     f_part: params.part ?? undefined,
     f_member_state: params.memberState ?? undefined,
+    f_therapeutic_area: params.therapeuticArea ?? undefined,
+    f_imp_name: params.impName ?? undefined,
   })
 
   if (error) throw new Error(`search_facets failed: ${error.message}`)
 
   const grouped: Record<string, Facet[]> = {}
-  for (const row of (data ?? []) as unknown as Facet[]) {
-    ;(grouped[row.facet] ??= []).push({ ...row, count: Number(row.count) })
+  for (const row of data ?? []) {
+    ;(grouped[row.facet] ??= []).push({
+      facet: row.facet,
+      value: row.value,
+      count: Number(row.count),
+    })
   }
   return grouped
 }

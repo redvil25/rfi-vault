@@ -14,9 +14,9 @@ const TEAM_LABELS: Record<string, string> = {
 const NAV = [
   { href: '/search', label: 'Search', ready: true },
   { href: '/ingest', label: 'File a document', ready: true },
-  { href: '/assess', label: 'Pre-submission check', ready: false },
-  { href: '/analytics', label: 'Analytics', ready: false },
-  { href: '/audit', label: 'Audit trail', ready: false },
+  { href: '/assess', label: 'Pre-submission check', ready: true },
+  { href: '/analytics', label: 'Analytics', ready: true },
+  { href: '/audit', label: 'Audit trail', ready: true },
 ]
 
 export default async function AppLayout({

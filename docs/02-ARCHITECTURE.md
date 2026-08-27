@@ -171,7 +171,7 @@ Log every AI call into the `ai_calls` table and put the real measured cost on a 
 Say these out loud in the Q&A. Naming your scope boundaries reads as engineering maturity, not as a gap.
 
 - No direct CTIS integration — no public write API exists; we export in a CTIS-compatible structure instead.
-- OCR is local (Tesseract) and English-only. A scanned document in another language, or handwriting, is out of scope — a vision model would be the upgrade.
+- Ingestion reads the text layer of a CTIS PDF export. Scans, photographs and screenshots are refused with an explanation rather than guessed at (ADR-021). OCR or a vision model is the upgrade, behind the same `extractDocument()` interface.
 - No multi-language UI — the corpus contains local-language artefacts, but the interface is English.
 - No formal computerised-system validation — architecture is validation-ready; qualification is a real-deployment activity.
 - No production SSO — Supabase Auth stands in for what would be Entra ID / SAML in the enterprise.
