@@ -1,6 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/lib/db/types'
-import { sectionSimilarityRpc, type SectionSimilarityRow } from '@/lib/db/pending-rpc'
 import { embedQuery, toVectorLiteral } from '@/lib/ai/embed'
 import { aiEnabled } from '@/lib/env'
 import { log } from '@/lib/log'
@@ -73,7 +72,7 @@ async function similarityFor(
     return { signal: undefined, precedents: [], unavailableBecause: 'embedding the section failed' }
   }
 
-  const { data, error } = await sectionSimilarityRpc(supabase, {
+  const { data, error } = await supabase.rpc('section_similarity', {
     query_embed: toVectorLiteral(embedding),
     f_section: input.section,
     f_member_states: input.memberStates.length > 0 ? input.memberStates : undefined,
@@ -85,7 +84,7 @@ async function similarityFor(
     return { signal: undefined, precedents: [], unavailableBecause: 'the similarity search failed' }
   }
 
-  const rows: SectionSimilarityRow[] = data ?? []
+  const rows = data ?? []
   if (rows.length === 0) {
     return {
       signal: undefined,

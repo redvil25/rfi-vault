@@ -1,6 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/lib/db/types'
-import { sectionRfiRatesRpc } from '@/lib/db/pending-rpc'
 import { log } from '@/lib/log'
 import type { SubmissionType } from '@/lib/domain/taxonomy'
 
@@ -61,7 +60,7 @@ export async function loadBaseRates(
 ): Promise<BaseRates> {
   const supabase = client ?? (await requestScopedClient())
 
-  const { data, error } = await sectionRfiRatesRpc(supabase, {
+  const { data, error } = await supabase.rpc('section_rfi_rates', {
     f_submission_type: submissionType,
     f_member_states: memberStates.length > 0 ? memberStates : undefined,
   })

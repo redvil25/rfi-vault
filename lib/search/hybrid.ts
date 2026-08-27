@@ -1,7 +1,6 @@
 import 'server-only'
 
 import { createClient } from '@/lib/db/server'
-import { hybridSearchRpc } from '@/lib/db/pending-rpc'
 import { embedQuery, toVectorLiteral } from '@/lib/ai/embed'
 import { aiEnabled, serverEnv } from '@/lib/env'
 import { log } from '@/lib/log'
@@ -161,7 +160,7 @@ export async function hybridSearch(params: SearchParams): Promise<HybridResult> 
   // Fetch a wider slice than one page so pagination has something to page over.
   const matchCount = Math.min(200, params.pageSize * 5)
 
-  const { data, error } = await hybridSearchRpc(supabase, {
+  const { data, error } = await supabase.rpc('hybrid_search', {
     query_text: params.q,
     query_embed: toVectorLiteral(queryEmbedding),
     match_count: matchCount,

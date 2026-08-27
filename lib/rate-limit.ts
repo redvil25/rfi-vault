@@ -1,5 +1,4 @@
 import { createServiceClient } from '@/lib/db/service'
-import { consumeRateLimitRpc } from '@/lib/db/pending-rpc'
 import { log } from '@/lib/log'
 
 /**
@@ -99,7 +98,7 @@ export async function consumeRateLimit(
   windowSeconds: number,
 ): Promise<RateLimitResult> {
   try {
-    const { data, error } = await consumeRateLimitRpc(createServiceClient(), {
+    const { data, error } = await createServiceClient().rpc('consume_rate_limit', {
       p_bucket: key,
       p_limit: limit,
       p_window_seconds: windowSeconds,

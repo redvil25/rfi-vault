@@ -1,11 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/lib/db/types'
-import {
-  rfiStatsByCategoryRpc,
-  rfiStatsByMemberStateRpc,
-  rfiStatsByMonthRpc,
-  rfiTurnaroundStatsRpc,
-} from '@/lib/db/pending-rpc'
 import { CATEGORY_BY_ID, MEMBER_STATE_BY_CODE } from '@/lib/domain/taxonomy'
 import { log } from '@/lib/log'
 
@@ -108,10 +102,10 @@ export async function loadAnalytics(
 
   const [categoriesResult, monthsResult, memberStatesResult, turnaroundResult] =
     await Promise.all([
-      rfiStatsByCategoryRpc(supabase),
-      rfiStatsByMonthRpc(supabase),
-      rfiStatsByMemberStateRpc(supabase),
-      rfiTurnaroundStatsRpc(supabase),
+      supabase.rpc('rfi_stats_by_category'),
+      supabase.rpc('rfi_stats_by_month'),
+      supabase.rpc('rfi_stats_by_member_state'),
+      supabase.rpc('rfi_turnaround_stats'),
     ])
 
   for (const [name, result] of [

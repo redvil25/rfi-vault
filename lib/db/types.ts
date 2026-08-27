@@ -10,8 +10,35 @@ export type Json =
   | Json[]
 
 export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.15"
+    PostgrestVersion: "14.17"
+  }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
   }
   public: {
     Tables: {
@@ -175,6 +202,21 @@ export type Database = {
           },
         ]
       }
+      rate_limit_hit: {
+        Row: {
+          bucket: string
+          occurred_at: string
+        }
+        Insert: {
+          bucket: string
+          occurred_at?: string
+        }
+        Update: {
+          bucket?: string
+          occurred_at?: string
+        }
+        Relationships: []
+      }
       rfi_consideration: {
         Row: {
           category: string
@@ -183,6 +225,7 @@ export type Database = {
           created_at: string
           document_id: string
           document_name: string | null
+          fts: unknown
           id: string
           is_seed: boolean
           member_state: string | null
@@ -203,6 +246,7 @@ export type Database = {
           created_at?: string
           document_id: string
           document_name?: string | null
+          fts?: unknown
           id?: string
           is_seed?: boolean
           member_state?: string | null
@@ -223,6 +267,7 @@ export type Database = {
           created_at?: string
           document_id?: string
           document_name?: string | null
+          fts?: unknown
           id?: string
           is_seed?: boolean
           member_state?: string | null
@@ -396,6 +441,7 @@ export type Database = {
           created_at: string
           eu_trial_number: string
           id: string
+          imp_name: string | null
           member_states: string[]
           phase: string | null
           short_title: string
@@ -406,6 +452,7 @@ export type Database = {
           created_at?: string
           eu_trial_number: string
           id?: string
+          imp_name?: string | null
           member_states?: string[]
           phase?: string | null
           short_title: string
@@ -416,6 +463,7 @@ export type Database = {
           created_at?: string
           eu_trial_number?: string
           id?: string
+          imp_name?: string | null
           member_states?: string[]
           phase?: string | null
           short_title?: string
@@ -453,6 +501,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      consume_rate_limit: {
+        Args: { p_bucket: string; p_limit: number; p_window_seconds: number }
+        Returns: {
+          allowed: boolean
+          remaining: number
+          retry_after_seconds: number
+        }[]
+      }
       current_team: {
         Args: never
         Returns: Database["public"]["Enums"]["team_role"]
@@ -462,9 +518,11 @@ export type Database = {
           f_approved_only?: boolean
           f_category?: string
           f_from?: string
+          f_imp_name?: string
           f_member_state?: string
           f_part?: Database["public"]["Enums"]["section_part"]
           f_section?: string
+          f_therapeutic_area?: string
           match_count?: number
           query_embed: string
           query_text: string
@@ -487,65 +545,139 @@ export type Database = {
           rank: number
         }[]
       }
+      rfi_stats_by_category: {
+        Args: never
+        Returns: {
+          accepted: number
+          category: string
+          distinct_trials: number
+          member_states: number
+          occurrences: number
+          open_items: number
+        }[]
+      }
+      rfi_stats_by_member_state: {
+        Args: never
+        Returns: {
+          distinct_trials: number
+          member_state: string
+          occurrences: number
+        }[]
+      }
+      rfi_stats_by_month: {
+        Args: { f_member_state?: string }
+        Returns: {
+          member_states: number
+          month: string
+          occurrences: number
+        }[]
+      }
+      rfi_turnaround_stats: {
+        Args: never
+        Returns: {
+          answered: number
+          answered_late: number
+          mean_days: number
+          median_days: number
+          p90_days: number
+          unanswered: number
+        }[]
+      }
+      search_considerations: {
+        Args: {
+          f_category?: string
+          f_from?: string
+          f_imp_name?: string
+          f_member_state?: string
+          f_part?: Database["public"]["Enums"]["section_part"]
+          f_phase?: Database["public"]["Enums"]["rfi_phase"]
+          f_section?: string
+          f_status?: Database["public"]["Enums"]["response_status"]
+          f_submission_type?: Database["public"]["Enums"]["submission_type"]
+          f_therapeutic_area?: string
+          f_to?: string
+          lim?: number
+          off?: number
+          q?: string
+          sort?: string
+        }
+        Returns: {
+          category: string
+          consideration_number: number
+          consideration_text: string
+          document_name: string
+          document_ref: string
+          due_at: string
+          eu_trial_number: string
+          id: string
+          imp_name: string
+          issued_at: string
+          matched_on: string
+          member_state: string
+          outcome: Database["public"]["Enums"]["rfi_outcome"]
+          owner_team: Database["public"]["Enums"]["team_role"]
+          phase: Database["public"]["Enums"]["rfi_phase"]
+          rank: number
+          response_status: Database["public"]["Enums"]["response_status"]
+          section: string
+          section_part: Database["public"]["Enums"]["section_part"]
+          short_title: string
+          sponsor_response_text: string
+          submission_type: Database["public"]["Enums"]["submission_type"]
+          therapeutic_area: string
+          total_count: number
+        }[]
+      }
+      search_facets: {
+        Args: {
+          f_imp_name?: string
+          f_member_state?: string
+          f_part?: Database["public"]["Enums"]["section_part"]
+          f_therapeutic_area?: string
+          q?: string
+        }
+        Returns: {
+          count: number
+          facet: string
+          value: string
+        }[]
+      }
+      section_rfi_rates: {
+        Args: {
+          f_member_states?: string[]
+          f_submission_type?: Database["public"]["Enums"]["submission_type"]
+        }
+        Returns: {
+          hits: number
+          section: string
+          section_part: Database["public"]["Enums"]["section_part"]
+          share: number
+        }[]
+      }
+      section_similarity: {
+        Args: {
+          f_member_states?: string[]
+          f_section?: string
+          match_count?: number
+          query_embed: string
+        }
+        Returns: {
+          category: string
+          consideration_id: string
+          consideration_text: string
+          member_state: string
+          response_status: Database["public"]["Enums"]["response_status"]
+          section: string
+          similarity: number
+          sponsor_response_text: string
+        }[]
+      }
       vector_search: {
         Args: { match_count?: number; query_embed: string }
         Returns: {
           consideration_id: string
           kind: string
           similarity: number
-        }[]
-      }
-      search_considerations: {
-        Args: {
-          q?: string
-          f_part?: Database["public"]["Enums"]["section_part"]
-          f_section?: string
-          f_member_state?: string
-          f_category?: string
-          f_phase?: Database["public"]["Enums"]["rfi_phase"]
-          f_submission_type?: Database["public"]["Enums"]["submission_type"]
-          f_status?: Database["public"]["Enums"]["response_status"]
-          f_from?: string
-          f_to?: string
-          sort?: string
-          lim?: number
-          off?: number
-        }
-        Returns: {
-          id: string
-          consideration_number: number
-          section_part: Database["public"]["Enums"]["section_part"]
-          section: string
-          document_name: string | null
-          member_state: string | null
-          category: string
-          consideration_text: string
-          sponsor_response_text: string | null
-          response_status: Database["public"]["Enums"]["response_status"]
-          outcome: Database["public"]["Enums"]["rfi_outcome"]
-          owner_team: Database["public"]["Enums"]["team_role"] | null
-          document_ref: string
-          submission_type: Database["public"]["Enums"]["submission_type"]
-          phase: Database["public"]["Enums"]["rfi_phase"]
-          issued_at: string
-          due_at: string | null
-          eu_trial_number: string
-          short_title: string
-          rank: number
-          matched_on: string
-          total_count: number
-        }[]
-      }
-      search_facets: {
-        Args: {
-          q?: string
-          f_part?: Database["public"]["Enums"]["section_part"]
-          f_member_state?: string
-        }
-        Returns: {
-          facet: string
-          value: string
-          count: number
         }[]
       }
     }
@@ -686,6 +818,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       response_status: ["DRAFT", "IN_REVIEW", "APPROVED", "SUBMITTED"],

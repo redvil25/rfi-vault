@@ -2,9 +2,6 @@ import 'server-only'
 
 import { z } from 'zod'
 import { createClient } from '@/lib/db/server'
-import {
-  searchConsiderationsRpc, searchFacetsRpc, type SearchConsiderationRow,
-} from '@/lib/db/pending-rpc'
 import type { Database } from '@/lib/db/types'
 
 type Enums = Database['public']['Enums']
@@ -77,7 +74,10 @@ export interface SearchResult {
   tookMs: number
 }
 
-function toHit(r: SearchConsiderationRow): SearchHit {
+/** One row as `search_considerations` returns it, straight from the generated types. */
+type SearchRow = Database['public']['Functions']['search_considerations']['Returns'][number]
+
+function toHit(r: SearchRow): SearchHit {
   return {
     id: r.id,
     considerationNumber: r.consideration_number,
@@ -111,7 +111,7 @@ export async function searchConsiderations(
   const supabase = await createClient()
   const started = performance.now()
 
-  const { data, error } = await searchConsiderationsRpc(supabase, {
+  const { data, error } = await supabase.rpc('search_considerations', {
     q: params.q ?? undefined,
     f_part: params.part ?? undefined,
     f_section: params.section ?? undefined,
@@ -159,7 +159,7 @@ export async function searchFacets(params: {
 }): Promise<Record<string, Facet[]>> {
   const supabase = await createClient()
 
-  const { data, error } = await searchFacetsRpc(supabase, {
+  const { data, error } = await supabase.rpc('search_facets', {
     q: params.q ?? undefined,
     f_part: params.part ?? undefined,
     f_member_state: params.memberState ?? undefined,
