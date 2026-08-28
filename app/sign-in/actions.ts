@@ -5,10 +5,22 @@ import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { createClient } from '@/lib/db/server'
 
+/**
+ * Where to land after signing in.
+ *
+ * `startsWith('/')` is not enough on its own: "//evil.example" and "/\\evil.example"
+ * both start with a slash and are protocol-relative URLs, so redirecting to one
+ * sends the freshly authenticated user straight off this origin. Only a path
+ * that continues with something other than a slash or a backslash is accepted.
+ */
+const RELATIVE_PATH = /^\/(?![/\\]).*$/
+
 const credentials = z.object({
   email: z.string().email('Enter a valid email address.'),
   password: z.string().min(8, 'Password must be at least 8 characters.'),
-  next: z.string().startsWith('/').optional(),
+  // Falls back to the default landing page rather than failing the sign-in: a
+  // crafted `?next=` should be ignored, not turned into "you cannot sign in".
+  next: z.string().regex(RELATIVE_PATH).optional().catch(undefined),
 })
 
 export type SignInState = { error?: string }

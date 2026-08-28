@@ -58,19 +58,41 @@ const RE_TIMESTAMP = /(?<!\d)(\d{2})\/(\d{2})\/(\d{4})\s*(\d{2}):(\d{2})(?!\d)/
 const RE_MS_PREFIX = /^([A-Z]{2})\s*[-–]\s+/
 
 /**
- * Field labels. "Application section parts" appears WITHOUT a colon in the real
- * export while every neighbouring label has one, so the colon is optional
- * throughout rather than special-cased.
+ * Field labels.
+ *
+ * Two renderings have to be accepted, because which one you get depends on the
+ * PDF, not on CTIS:
+ *
+ *   Consideration number:        <- label alone on its line, value on the next
+ *   1
+ *   Consideration number: 1      <- label and value on one line
+ *
+ * The second is what most extractors produce when the export lays the fields
+ * out as a two-column table rather than stacked. Only accepting the first is
+ * what made an otherwise readable export parse to zero considerations while its
+ * header parsed perfectly.
+ *
+ * The inline value requires a colon. Without that requirement the prose line
+ * "Consideration of the benefit-risk balance is required." would be read as a
+ * label, and the consideration text would be silently truncated. "Application
+ * section parts" appears WITHOUT a colon in the real export while every
+ * neighbouring label has one, so the colon stays optional for the own-line form.
+ *
+ * Order matters and is why this is an array rather than an object: "Consideration
+ * number" must be tried before "Consideration", which would otherwise swallow it.
  */
-const LABELS = {
-  number: /^Consideration number\s*:?\s*$/i,
-  parts: /^Application section parts?\s*:?\s*$/i,
-  document: /^Application section and document\s*:?\s*$/i,
-  consideration: /^Consideration\s*:?\s*$/i,
-  response: /^Sponsor response\s*:?\s*$/i,
-} as const
+type LabelKey = 'number' | 'parts' | 'document' | 'consideration' | 'response'
 
-type LabelKey = keyof typeof LABELS
+const LABEL_PATTERNS: readonly (readonly [LabelKey, RegExp])[] = [
+  // The only label whose inline value may be separated by whitespace alone:
+  // it is always a bare number, so "Consideration No. 4" cannot be misread the
+  // way a colon-less prose line could.
+  ['number', /^(?:Consideration|RFI)\s*(?:number|no\.?|#)\s*:?\s*(\d{1,4})?\s*$/i],
+  ['parts', /^Application section parts?\s*(?::\s*(.*))?$/i],
+  ['document', /^Application section and document\s*(?::\s*(.*))?$/i],
+  ['consideration', /^Considerations?\s*(?::\s*(.*))?$/i],
+  ['response', /^Sponsor(?:'s|’s)?\s+response\s*(?::\s*(.*))?$/i],
+] as const
 
 /**
  * The page header repeats on every page and lands in the middle of whichever
@@ -101,9 +123,12 @@ function isPageHeader(
   return false
 }
 
-function labelOf(line: string): LabelKey | null {
-  for (const [key, re] of Object.entries(LABELS) as [LabelKey, RegExp][]) {
-    if (re.test(line.trim())) return key
+/** The label a line carries, plus any value written inline after the colon. */
+function labelOf(line: string): { key: LabelKey; inline: string | null } | null {
+  const trimmed = line.trim()
+  for (const [key, re] of LABEL_PATTERNS) {
+    const m = re.exec(trimmed)
+    if (m) return { key, inline: m[1]?.trim() || null }
   }
   return null
 }
@@ -225,8 +250,20 @@ function parseIssuedAt(text: string): string | null {
   const m = RE_TIMESTAMP.exec(text)
   if (!m) return null
   const [, dd, mm, yyyy, hh, min] = m
-  const date = new Date(Date.UTC(+yyyy, +mm - 1, +dd, +hh, +min))
-  return Number.isNaN(date.getTime()) ? null : date.toISOString()
+  const [day, month, year, hour, minute] = [+dd, +mm, +yyyy, +hh, +min]
+
+  // Date.UTC rolls out-of-range components over silently: "45/13/2026 99:99"
+  // becomes a real, wrong date in 2027 rather than a parse failure. A misread
+  // issue date is worse than a missing one — it lands in the audit trail and in
+  // every "how long did this take" figure on the analytics page.
+  if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59) return null
+
+  const date = new Date(Date.UTC(year, month - 1, day, hour, minute))
+  if (Number.isNaN(date.getTime())) return null
+  // Rejects 31/02: the constructor accepts it and hands back 03/03.
+  if (date.getUTCDate() !== day || date.getUTCMonth() !== month - 1) return null
+
+  return date.toISOString()
 }
 
 /**
@@ -284,20 +321,21 @@ export function parseCtisRfi(rawText: string): ParsedDocument {
   let active: LabelKey | null = null
 
   for (const line of lines) {
-    const key = labelOf(line)
+    const hit = labelOf(line)
 
-    if (key === 'number') {
+    if (hit?.key === 'number') {
       if (current) blocks.push(current)
-      current = {}
+      current = { number: hit.inline ? [hit.inline] : [] }
       active = 'number'
       continue
     }
 
     if (!current) continue
 
-    if (key) {
-      active = key
-      current[key] ??= []
+    if (hit) {
+      active = hit.key
+      const field = (current[hit.key] ??= [])
+      if (hit.inline) field.push(hit.inline)
       continue
     }
 

@@ -4,10 +4,14 @@ import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { getCurrentUser } from '@/lib/db/server'
 import {
-  analyseStored, canIngest, commitIngestion, createUploadTarget,
+  analyseStored, canIngest, commitIngestion, createUploadTarget, discardUploads,
 } from '@/lib/ingest/commit'
+import { log } from '@/lib/log'
 import { consumeRateLimit } from '@/lib/rate-limit'
-import { MAX_BATCH } from '@/lib/ingest/constants'
+import {
+  ANALYSE_RATE_LIMIT, COMMIT_RATE_LIMIT, MAX_BATCH, RATE_LIMIT_WINDOW_SECONDS,
+  UPLOAD_RATE_LIMIT,
+} from '@/lib/ingest/constants'
 import type { ParsedDocument } from '@/lib/ingest/parse-ctis'
 
 /**
@@ -16,6 +20,18 @@ import type { ParsedDocument } from '@/lib/ingest/parse-ctis'
  * segments and stray path characters out of the Storage API.
  */
 const STORAGE_KEY_RE = /^ingest\/\d{4}\/[0-9a-f-]{36}-[A-Za-z0-9._-]{1,80}$/
+
+/**
+ * "Try again in 214 seconds" is a number a user has to convert. Anything over a
+ * minute is said in minutes.
+ */
+function retryMessage(what: string, seconds: number): string {
+  const when =
+    seconds < 60
+      ? `${seconds} seconds`
+      : `${Math.ceil(seconds / 60)} minute${seconds < 120 ? '' : 's'}`
+  return `Too many ${what} in a short time. Try again in ${when}.`
+}
 
 async function requireIngestor() {
   const user = await getCurrentUser()
@@ -41,13 +57,20 @@ export async function createUploadTargetAction(fileName: string): Promise<Upload
   const gate = await requireIngestor()
   if ('error' in gate) return { error: gate.error }
 
-  const limited = await consumeRateLimit(`ingest:upload:${gate.user.id}`, 20, 300)
-  if (!limited.allowed) {
-    return { error: `Too many uploads. Try again in ${limited.retryAfterSeconds} seconds.` }
-  }
-
+  // Validation first, then the token. Spending one on input that was never going
+  // to be accepted lets a malformed client burn a user's whole window without a
+  // single PDF being parsed — which is the only thing the limit exists to bound.
   if (typeof fileName !== 'string' || fileName.length === 0 || fileName.length > 255) {
     return { error: 'That file name is not usable.' }
+  }
+
+  const limited = await consumeRateLimit(
+    `ingest:upload:${gate.user.id}`,
+    UPLOAD_RATE_LIMIT,
+    RATE_LIMIT_WINDOW_SECONDS,
+  )
+  if (!limited.allowed) {
+    return { error: retryMessage('uploads', limited.retryAfterSeconds) }
   }
 
   const target = await createUploadTarget(fileName)
@@ -76,13 +99,17 @@ export async function analyseStoredAction(
   const gate = await requireIngestor()
   if ('error' in gate) return { error: gate.error }
 
-  const limited = await consumeRateLimit(`ingest:analyse:${gate.user.id}`, 20, 300)
-  if (!limited.allowed) {
-    return { error: `Too many uploads. Try again in ${limited.retryAfterSeconds} seconds.` }
-  }
-
   if (typeof storageKey !== 'string' || !STORAGE_KEY_RE.test(storageKey)) {
     return { error: 'The upload reference is malformed. Start again.' }
+  }
+
+  const limited = await consumeRateLimit(
+    `ingest:analyse:${gate.user.id}`,
+    ANALYSE_RATE_LIMIT,
+    RATE_LIMIT_WINDOW_SECONDS,
+  )
+  if (!limited.allowed) {
+    return { error: retryMessage('documents', limited.retryAfterSeconds) }
   }
 
   const result = await analyseStored(storageKey)
@@ -150,11 +177,6 @@ export async function commitAction(
   const gate = await requireIngestor()
   if ('error' in gate) return { error: gate.error }
 
-  const limited = await consumeRateLimit(`ingest:commit:${gate.user.id}`, 30, 300)
-  if (!limited.allowed) {
-    return { error: `Too many attempts. Try again in ${limited.retryAfterSeconds} seconds.` }
-  }
-
   const raw = formData.get('documents')
   if (typeof raw !== 'string' || !raw.trim()) {
     return { error: 'Nothing to file. Start again.' }
@@ -171,6 +193,15 @@ export async function commitAction(
   const parsed = commitBatchSchema.safeParse(decoded)
   if (!parsed.success) {
     return { error: parsed.error.issues[0].message }
+  }
+
+  const limited = await consumeRateLimit(
+    `ingest:commit:${gate.user.id}`,
+    COMMIT_RATE_LIMIT,
+    RATE_LIMIT_WINDOW_SECONDS,
+  )
+  if (!limited.allowed) {
+    return { error: retryMessage('filings', limited.retryAfterSeconds) }
   }
 
   const filed: FiledDocument[] = []
@@ -199,5 +230,43 @@ export async function commitAction(
 
   if (filed.length > 0) revalidatePath('/search')
 
+  // A refused document's upload is referenced by nothing and can never be filed
+  // from this screen again — the review state is gone the moment this returns.
+  // Leaving it in the bucket would be a slow leak of documents no row points at.
+  if (rejected.length > 0) {
+    try {
+      await discardUploads(rejected.map((r) => r.storageKey))
+    } catch (err) {
+      log.warn('ingest.discard_rejected_failed', { count: rejected.length }, err)
+    }
+  }
+
   return { filed, rejected }
+}
+
+/**
+ * Deletes uploads the reviewer decided not to file.
+ *
+ * Best-effort and deliberately silent: this is housekeeping the user did not ask
+ * for, so a failure must never surface as an error on a screen where they have
+ * already moved on. Nothing here can delete a filed document's source file —
+ * `discardUploads()` refuses any key an `rfi_document` row points at.
+ */
+export async function discardUploadsAction(storageKeys: string[]): Promise<void> {
+  const gate = await requireIngestor()
+  if ('error' in gate) return
+
+  if (!Array.isArray(storageKeys)) return
+  const keys = storageKeys
+    .filter((k): k is string => typeof k === 'string' && STORAGE_KEY_RE.test(k))
+    .slice(0, MAX_BATCH)
+
+  if (keys.length === 0) return
+
+  try {
+    const removed = await discardUploads(keys)
+    log.info('ingest.discarded', { requested: keys.length, removed })
+  } catch (err) {
+    log.warn('ingest.discard_action_failed', { requested: keys.length }, err)
+  }
 }

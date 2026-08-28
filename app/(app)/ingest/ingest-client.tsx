@@ -1,16 +1,17 @@
 'use client'
 
 import Link from 'next/link'
-import { useActionState, useRef, useState } from 'react'
+import { useActionState, useMemo, useRef, useState } from 'react'
 import { useFormStatus } from 'react-dom'
 import { CATEGORIES, MEMBER_STATES } from '@/lib/domain/taxonomy'
 import { createClient } from '@/lib/db/browser'
 import {
-  RFI_BUCKET, MAX_UPLOAD_BYTES, MAX_BATCH, ACCEPTED_UPLOAD_ACCEPT_ATTR,
+  RFI_BUCKET, MAX_UPLOAD_BYTES, MAX_BATCH, ACCEPTED_UPLOAD_ACCEPT_ATTR, checkFileable,
 } from '@/lib/ingest/constants'
 import type { ParsedDocument } from '@/lib/ingest/parse-ctis'
 import {
-  analyseStoredAction, commitAction, createUploadTargetAction, type CommitState,
+  analyseStoredAction, commitAction, createUploadTargetAction, discardUploadsAction,
+  type CommitState,
 } from './actions'
 
 const CATEGORY_OPTIONS = [...CATEGORIES]
@@ -29,12 +30,20 @@ function formatBytes(bytes: number) {
     : `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
-function Submit({ idle, busy }: { idle: string; busy: string }) {
+function Submit({
+  idle,
+  busy,
+  disabled = false,
+}: {
+  idle: string
+  busy: string
+  disabled?: boolean
+}) {
   const { pending } = useFormStatus()
   return (
     <button
       type="submit"
-      disabled={pending}
+      disabled={pending || disabled}
       className="rounded-md bg-accent px-5 py-2.5 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60"
     >
       {pending ? busy : idle}
@@ -93,12 +102,22 @@ export function IngestClient() {
   const [files, setFiles] = useState<File[]>([])
   const [docs, setDocs] = useState<ReviewDoc[]>([])
   const [rejected, setRejected] = useState<RejectedUpload[]>([])
-  const [overrides, setOverrides] = useState<Overrides>({})
   const [progress, setProgress] = useState<Progress | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [commit, commitFormAction] = useActionState<CommitState, FormData>(commitAction, {})
+
+  /**
+   * Bumped whenever a review begins or is abandoned, and used as the review
+   * component's `key`.
+   *
+   * The commit form's state lives in `useActionState`, which survives a state
+   * reset in this component — so a failed filing left its error message sitting
+   * under the *next* batch's review screen. Remounting on a new review clears
+   * it. Deliberately not derived from the document list: removing one document
+   * from a batch must not discard the corrections made to the other nine.
+   */
+  const [reviewId, setReviewId] = useState(0)
 
   function addFiles(incoming: FileList | null) {
     if (!incoming || incoming.length === 0) return
@@ -113,7 +132,17 @@ export function IngestClient() {
         continue
       }
       if (file.size > MAX_UPLOAD_BYTES) {
-        problems.push(`${file.name} is ${formatBytes(file.size)}; the limit is 20 MB.`)
+        problems.push(
+          `${file.name} is ${formatBytes(file.size)}; the limit is ${formatBytes(MAX_UPLOAD_BYTES)}.`,
+        )
+        continue
+      }
+      // The `accept` attribute only filters the file dialog — a drag-and-drop
+      // bypasses it entirely. The server decides the real format from magic
+      // bytes regardless, but refusing here saves an upload, a parse, and two
+      // rate-limit tokens spent on a file that was never going to be read.
+      if (file.type !== 'application/pdf' && !/\.pdf$/i.test(file.name)) {
+        problems.push(`${file.name} is not a PDF; only CTIS PDF exports can be filed.`)
         continue
       }
       // Same name and size twice is a double-drop, not two documents.
@@ -212,25 +241,239 @@ export function IngestClient() {
     setProgress(null)
     setDocs(read)
     setRejected(failed)
+    setReviewId((n) => n + 1)
     if (read.length === 0 && failed.length > 0) {
-      setError('None of those files could be read. Nothing was filed.')
+      setError(
+        failed.length === 1
+          ? 'That file could not be read. Nothing was filed.'
+          : 'None of those files could be read. Nothing was filed.',
+      )
     }
   }
+
+  function startOver(discard: ReviewDoc[] = []) {
+    // Housekeeping, not part of the user's flow: the uploads they just decided
+    // against would otherwise sit in the bucket for ever with nothing pointing
+    // at them. Deliberately not awaited — the screen resets either way.
+    if (discard.length > 0) {
+      void discardUploadsAction(discard.map((d) => d.storageKey))
+    }
+
+    setFiles([])
+    setDocs([])
+    setRejected([])
+    setProgress(null)
+    setError(null)
+    setReviewId((n) => n + 1)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  if (docs.length > 0) {
+    return (
+      <ReviewFlow
+        key={reviewId}
+        docs={docs}
+        rejected={rejected}
+        onRemoveDoc={(id) => setDocs((prev) => prev.filter((d) => d.id !== id))}
+        onStartOver={startOver}
+      />
+    )
+  }
+
+  // ----------------------------------------------------------------- Upload
+  const busy = progress !== null
+
+  return (
+    <form action={handleUpload} className="space-y-4">
+      {busy ? (
+        <div
+          className="rounded-lg border border-border bg-surface p-5"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="flex items-center gap-2.5 text-sm font-medium">
+            <Spinner />
+            Reading {progress.done + 1} of {progress.total} — {progress.current}
+          </div>
+          <div className="mt-4 h-1 overflow-hidden rounded-full bg-background">
+            <div
+              className="h-full rounded-full bg-accent transition-all duration-500"
+              style={{ width: `${((progress.done + 0.5) / progress.total) * 100}%` }}
+            />
+          </div>
+          <p className="mt-3 text-xs text-muted">
+            Each file goes straight to encrypted storage, then is read. One at a time, so a
+            large batch does not trip the rate limit.
+          </p>
+        </div>
+      ) : (
+        <div
+          onDragOver={(e) => {
+            e.preventDefault()
+            setDragging(true)
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault()
+            setDragging(false)
+            addFiles(e.dataTransfer.files)
+          }}
+          className={`rounded-lg border-2 border-dashed px-6 py-10 text-center transition ${
+            dragging ? 'border-accent bg-accent-soft' : 'border-border bg-surface'
+          }`}
+        >
+          <input
+            ref={fileInputRef}
+            id="file"
+            name="file"
+            type="file"
+            multiple
+            accept={ACCEPTED_UPLOAD_ACCEPT_ATTR}
+            className="sr-only"
+            onChange={(e) => {
+              addFiles(e.target.files)
+              // Allow re-selecting the same file after removing it.
+              e.target.value = ''
+            }}
+          />
+
+          {files.length > 0 ? (
+            <div className="mx-auto max-w-lg space-y-2 text-left">
+              {files.map((file, i) => (
+                <div
+                  key={`${file.name}-${file.size}-${i}`}
+                  className="flex items-center gap-3 rounded-md border border-border bg-background px-3.5 py-2.5"
+                >
+                  <Tick />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{file.name}</p>
+                    <p className="text-xs text-muted">
+                      Ready to extract · {formatBytes(file.size)}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeFile(i)}
+                    className="text-xs text-accent hover:underline"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+
+              {files.length < MAX_BATCH && (
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-full rounded-md border border-dashed border-border py-2 text-sm text-accent transition hover:bg-accent-soft"
+                >
+                  Add another document
+                </button>
+              )}
+            </div>
+          ) : (
+            <>
+              <p className="text-sm font-medium">
+                Drop one or more CTIS “Requests for information” exports here
+              </p>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="mt-3 rounded-md bg-accent-soft px-4 py-2 text-sm font-medium text-accent transition hover:opacity-80"
+              >
+                Choose files
+              </button>
+            </>
+          )}
+
+          <p className="mx-auto mt-4 max-w-md text-xs text-muted">
+            PDF up to 20 MB each, up to {MAX_BATCH} at a time, exported from CTIS. A scanned
+            printout has no text layer and will be refused — export the document rather than
+            scanning it. Everything read is shown to you before anything is filed, and uploads
+            go directly to encrypted storage.
+          </p>
+        </div>
+      )}
+
+      {error && (
+        <p role="alert" className="rounded-md bg-risk-soft px-3.5 py-2.5 text-sm text-risk">
+          {error}
+        </p>
+      )}
+
+      {rejected.length > 0 && docs.length === 0 && (
+        <ul className="rounded-md bg-warn-soft px-3.5 py-2.5 text-sm text-warn">
+          {rejected.map((r) => (
+            <li key={r.fileName}>
+              <span className="font-medium">{r.fileName}</span> — {r.error}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <button
+        type="submit"
+        disabled={busy || files.length === 0}
+        className="inline-flex items-center gap-2 rounded-md bg-accent px-5 py-2.5 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
+      >
+        {busy && <Spinner />}
+        {busy
+          ? 'Reading…'
+          : files.length > 1
+            ? `Extract and review ${files.length} documents`
+            : 'Extract and review'}
+      </button>
+    </form>
+  )
+}
+
+/**
+ * Review, then file.
+ *
+ * Split out from IngestClient so that `useActionState` — which does not reset
+ * when its owner's other state does — can be cleared by remounting this
+ * component under a new `key`. Everything about one review session lives here:
+ * the corrections, the form, and the outcome.
+ */
+function ReviewFlow({
+  docs,
+  rejected,
+  onRemoveDoc,
+  onStartOver,
+}: {
+  docs: ReviewDoc[]
+  rejected: RejectedUpload[]
+  onRemoveDoc: (id: string) => void
+  onStartOver: (discard: ReviewDoc[]) => void
+}) {
+  const [overrides, setOverrides] = useState<Overrides>({})
+  const [commit, commitFormAction] = useActionState<CommitState, FormData>(commitAction, {})
+
+  /**
+   * The last of the three places `checkFileable` is consulted.
+   *
+   * `analyseStored` already refuses an unfileable document before it reaches
+   * this screen, so in practice nothing here is ever unfileable — and that is
+   * exactly why the check stays. If a future change relaxes the server side, the
+   * failure is a document shown as unfileable rather than a reviewer pressing
+   * "Approve and file" and being told afterwards that nothing was written.
+   */
+  const graded = useMemo(
+    () =>
+      docs.map((doc) => {
+        const verdict = checkFileable(doc.parsed)
+        return { doc, problem: verdict.ok ? null : verdict.problem }
+      }),
+    [docs],
+  )
+
+  const fileable = graded.filter((g) => g.problem === null).map((g) => g.doc)
 
   function setOverride(docId: string, n: number, patch: Override) {
     setOverrides((prev) => ({
       ...prev,
       [docId]: { ...prev[docId], [n]: { ...prev[docId]?.[n], ...patch } },
     }))
-  }
-
-  function startOver() {
-    setFiles([])
-    setDocs([])
-    setRejected([])
-    setOverrides({})
-    setError(null)
-    if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
   // ---------------------------------------------------------------- Outcome
@@ -309,7 +552,7 @@ export function IngestClient() {
 
   // ----------------------------------------------------------------- Review
   if (docs.length > 0) {
-    const payload = docs.map((doc) => ({
+    const payload = fileable.map((doc) => ({
       storageKey: doc.storageKey,
       overrides: Object.entries(overrides[doc.id] ?? {}).map(([n, o]) => ({
         considerationNumber: Number(n),
@@ -317,7 +560,7 @@ export function IngestClient() {
       })),
     }))
 
-    const totalConsiderations = docs.reduce((n, d) => n + d.parsed.considerations.length, 0)
+    const totalConsiderations = fileable.reduce((n, d) => n + d.parsed.considerations.length, 0)
 
     return (
       <form action={commitFormAction} className="space-y-5">
@@ -331,8 +574,14 @@ export function IngestClient() {
             Nothing has been written to the repository yet. Extraction is deterministic — no
             model was involved — but you are the one who signs off on it.{' '}
             {totalConsiderations} consideration{totalConsiderations === 1 ? '' : 's'} across{' '}
-            {docs.length} document{docs.length === 1 ? '' : 's'}.
+            {fileable.length} document{fileable.length === 1 ? '' : 's'}.
           </p>
+          {fileable.length === 0 && (
+            <p className="mt-3 rounded-md bg-risk-soft px-3.5 py-2.5 text-sm text-risk">
+              Nothing here can be filed. Start again with a CTIS request-for-information
+              export.
+            </p>
+          )}
         </div>
 
         {rejected.length > 0 && (
@@ -351,13 +600,17 @@ export function IngestClient() {
           </div>
         )}
 
-        {docs.map((doc) => (
+        {graded.map(({ doc, problem }) => (
           <DocumentReview
             key={doc.id}
             doc={doc}
+            problem={problem}
             overrides={overrides[doc.id] ?? {}}
             onOverride={(n, patch) => setOverride(doc.id, n, patch)}
-            onRemove={() => setDocs((prev) => prev.filter((d) => d.id !== doc.id))}
+            onRemove={() => {
+              void discardUploadsAction([doc.storageKey])
+              onRemoveDoc(doc.id)
+            }}
             removable={docs.length > 1}
           />
         ))}
@@ -371,11 +624,18 @@ export function IngestClient() {
         <div className="flex items-center gap-4 border-t border-border pt-5">
           <Submit
             idle={
-              docs.length === 1 ? 'Approve and file' : `Approve and file ${docs.length} documents`
+              fileable.length === 1
+                ? 'Approve and file'
+                : `Approve and file ${fileable.length} documents`
             }
             busy="Filing…"
+            disabled={fileable.length === 0}
           />
-          <button type="button" onClick={startOver} className="text-sm text-muted hover:underline">
+          <button
+            type="button"
+            onClick={() => onStartOver(docs)}
+            className="text-sm text-muted hover:underline"
+          >
             Discard and start again
           </button>
         </div>
@@ -383,159 +643,20 @@ export function IngestClient() {
     )
   }
 
-  // ----------------------------------------------------------------- Upload
-  const busy = progress !== null
-
-  return (
-    <form action={handleUpload} className="space-y-4">
-      {busy ? (
-        <div
-          className="rounded-lg border border-border bg-surface p-5"
-          role="status"
-          aria-live="polite"
-        >
-          <div className="flex items-center gap-2.5 text-sm font-medium">
-            <Spinner />
-            Reading {progress.done + 1} of {progress.total} — {progress.current}
-          </div>
-          <div className="mt-4 h-1 overflow-hidden rounded-full bg-background">
-            <div
-              className="h-full rounded-full bg-accent transition-all duration-500"
-              style={{ width: `${((progress.done + 0.5) / progress.total) * 100}%` }}
-            />
-          </div>
-          <p className="mt-3 text-xs text-muted">
-            Each file goes straight to encrypted storage, then is read. One at a time, so a
-            large batch does not trip the rate limit.
-          </p>
-        </div>
-      ) : (
-        <div
-          onDragOver={(e) => {
-            e.preventDefault()
-            setDragging(true)
-          }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={(e) => {
-            e.preventDefault()
-            setDragging(false)
-            addFiles(e.dataTransfer.files)
-          }}
-          className={`rounded-lg border-2 border-dashed px-6 py-10 text-center transition ${
-            dragging ? 'border-accent bg-accent-soft' : 'border-border bg-surface'
-          }`}
-        >
-          <input
-            ref={fileInputRef}
-            id="file"
-            name="file"
-            type="file"
-            multiple
-            accept={ACCEPTED_UPLOAD_ACCEPT_ATTR}
-            className="sr-only"
-            onChange={(e) => {
-              addFiles(e.target.files)
-              // Allow re-selecting the same file after removing it.
-              e.target.value = ''
-            }}
-          />
-
-          {files.length > 0 ? (
-            <div className="mx-auto max-w-lg space-y-2 text-left">
-              {files.map((file, i) => (
-                <div
-                  key={`${file.name}-${file.size}-${i}`}
-                  className="flex items-center gap-3 rounded-md border border-border bg-background px-3.5 py-2.5"
-                >
-                  <Tick />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{file.name}</p>
-                    <p className="text-xs text-muted">{formatBytes(file.size)}</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => removeFile(i)}
-                    className="text-xs text-accent hover:underline"
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
-
-              {files.length < MAX_BATCH && (
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="w-full rounded-md border border-dashed border-border py-2 text-sm text-accent transition hover:bg-accent-soft"
-                >
-                  Add another document
-                </button>
-              )}
-            </div>
-          ) : (
-            <>
-              <p className="text-sm font-medium">
-                Drop one or more CTIS “Requests for information” exports here
-              </p>
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="mt-3 rounded-md bg-accent-soft px-4 py-2 text-sm font-medium text-accent transition hover:opacity-80"
-              >
-                Choose files
-              </button>
-            </>
-          )}
-
-          <p className="mx-auto mt-4 max-w-md text-xs text-muted">
-            PDF up to 20 MB each, up to {MAX_BATCH} at a time, exported from CTIS. A scanned
-            printout has no text layer and will be refused — export the document rather than
-            scanning it. Everything read is shown to you before anything is filed, and uploads
-            go directly to encrypted storage.
-          </p>
-        </div>
-      )}
-
-      {error && (
-        <p role="alert" className="rounded-md bg-risk-soft px-3.5 py-2.5 text-sm text-risk">
-          {error}
-        </p>
-      )}
-
-      {rejected.length > 0 && docs.length === 0 && (
-        <ul className="rounded-md bg-warn-soft px-3.5 py-2.5 text-sm text-warn">
-          {rejected.map((r) => (
-            <li key={r.fileName}>
-              <span className="font-medium">{r.fileName}</span> — {r.error}
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <button
-        type="submit"
-        disabled={busy || files.length === 0}
-        className="inline-flex items-center gap-2 rounded-md bg-accent px-5 py-2.5 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
-      >
-        {busy && <Spinner />}
-        {busy
-          ? 'Reading…'
-          : files.length > 1
-            ? `Extract and review ${files.length} documents`
-            : 'Extract and review'}
-      </button>
-    </form>
-  )
+  return null
 }
 
 function DocumentReview({
   doc,
+  problem,
   overrides,
   onOverride,
   onRemove,
   removable,
 }: {
   doc: ReviewDoc
+  /** Set when this document cannot be filed; it is shown, not silently dropped. */
+  problem: string | null
   overrides: Record<number, Override>
   onOverride: (n: number, patch: Override) => void
   onRemove: () => void
@@ -575,6 +696,12 @@ function DocumentReview({
           </div>
         ))}
       </dl>
+
+      {problem && (
+        <p className="mt-4 rounded-md bg-risk-soft px-3.5 py-2.5 text-sm text-risk">
+          <strong className="font-medium">This document will not be filed.</strong> {problem}
+        </p>
+      )}
 
       {parsed.warnings.length > 0 && (
         <ul className="mt-4 space-y-1 rounded-md bg-warn-soft px-3.5 py-2.5 text-sm text-warn">

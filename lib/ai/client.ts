@@ -33,7 +33,7 @@ export class AiDisabledError extends Error {
   constructor(what: string) {
     super(
       `${what} needs GOOGLE_GENERATIVE_AI_API_KEY. It is unset or still the placeholder, ` +
-        'so the AI path is off. The deterministic paths — parsing, OCR, keyword search, ' +
+        'so the AI path is off. The deterministic paths — PDF parsing, keyword search, ' +
         'the rule engine — all work without it.',
     )
     this.name = 'AiDisabledError'

@@ -8,6 +8,11 @@ import { log } from '@/lib/log'
 
 const PUBLIC_PATHS = ['/sign-in', '/auth']
 
+/** Exact match or a sub-path — not a prefix, which would make /sign-in-anything public. */
+function isPublicPath(pathname: string): boolean {
+  return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))
+}
+
 /**
  * Supabase stores its session in cookies named `sb-<project-ref>-auth-token`,
  * chunked as `.0`, `.1` when large. If none are present the caller has no
@@ -22,7 +27,7 @@ function hasSessionCookie(request: NextRequest): boolean {
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
-  const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p))
+  const isPublic = isPublicPath(pathname)
 
   if (!hasSessionCookie(request)) {
     if (isPublic) return NextResponse.next({ request })

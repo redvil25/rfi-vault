@@ -186,12 +186,19 @@ export async function assessSection(
   }
 
   if (similarity.signal !== undefined) {
+    // Say how many precedents actually cleared the floor, never how many were
+    // looked at. "Resembles 3 past sections" when none was close enough to cite
+    // is the kind of unearned confidence this audience is right to distrust.
+    const cited = similarity.precedents.length
     drivers.push({
       type: 'SIMILARITY',
       contribution: blended.contributions.SIMILARITY,
-      message: `Resembles ${similarity.precedents.length || SIMILARITY_TOP_K} past ${
-        input.section
-      } sections that drew a request for information.`,
+      message:
+        cited > 0
+          ? `Resembles ${cited} past ${input.section} section${cited === 1 ? '' : 's'} that drew ` +
+            'a request for information.'
+          : `Nearest past ${input.section} sections score below ${PRECEDENT_FLOOR} similarity — ` +
+            'a weak signal, and none close enough to cite as precedent.',
     })
   }
 

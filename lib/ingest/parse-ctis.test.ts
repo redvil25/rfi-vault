@@ -157,6 +157,113 @@ describe('parseCtisRfi — considerations', () => {
   })
 })
 
+describe('parseCtisRfi — inline field labels', () => {
+  /**
+   * Regression. An export whose fields render as "label: value" on one line
+   * parsed its header perfectly and produced zero considerations, so the review
+   * screen offered to file a document with nothing in it.
+   */
+  const INLINE = [
+    HEADER,
+    'Consideration number: 1',
+    'Application section parts: Part I - Regulatory',
+    'Application section and document: Cover letter',
+    'Consideration: IT - Please upload the proof of payment of the additional amount.',
+    'Sponsor response: Proof of payment is provided.',
+    'Consideration number: 2',
+    'Application section parts: Part II - Informed consent',
+    'Application section and document: Informed consent form',
+    'Consideration: ES - The informed consent form is provided in English only.',
+    'Sponsor response: The Spanish version is provided.',
+  ].join('\n')
+
+  it('reads a block whose values sit on the same line as their labels', () => {
+    const doc = parseCtisRfi(INLINE)
+
+    expect(doc.considerations).toHaveLength(2)
+    expect(doc.considerations[0].considerationNumber).toBe(1)
+    expect(doc.considerations[0].sectionPart).toBe('PART_I')
+    expect(doc.considerations[0].section).toBe('Regulatory')
+    expect(doc.considerations[0].memberState).toBe('IT')
+    expect(doc.considerations[0].considerationText).toBe(
+      'IT - Please upload the proof of payment of the additional amount.',
+    )
+    expect(doc.considerations[0].sponsorResponseText).toBe('Proof of payment is provided.')
+    expect(doc.considerations[1].sectionPart).toBe('PART_II')
+    expect(doc.considerations[1].memberState).toBe('ES')
+  })
+
+  it('continues an inline field onto the wrapped lines that follow it', () => {
+    const doc = parseCtisRfi(
+      [
+        HEADER,
+        'Consideration number: 1',
+        'Consideration: The stability data provided do not cover the proposed',
+        'shelf life of 36 months.',
+        'Sponsor response: Additional data are provided.',
+      ].join('\n'),
+    )
+
+    expect(doc.considerations[0].considerationText).toBe(
+      'The stability data provided do not cover the proposed shelf life of 36 months.',
+    )
+  })
+
+  it('does not mistake consideration prose for a label', () => {
+    // "Consideration of ..." has no colon, so it is text and not a field label.
+    // Without that rule the sentence below is truncated at "Consideration".
+    const doc = parseCtisRfi(
+      [
+        HEADER,
+        'Consideration number:',
+        '1',
+        'Consideration:',
+        'Consideration of the benefit-risk balance is required before approval.',
+        'Sponsor response:',
+        'An updated assessment is provided.',
+      ].join('\n'),
+    )
+
+    expect(doc.considerations).toHaveLength(1)
+    expect(doc.considerations[0].considerationText).toBe(
+      'Consideration of the benefit-risk balance is required before approval.',
+    )
+  })
+
+  it('accepts the spellings a different exporter produces', () => {
+    const doc = parseCtisRfi(
+      [
+        HEADER,
+        'Consideration No. 1',
+        "Sponsor's response: Provided.",
+      ].join('\n'),
+    )
+
+    expect(doc.considerations).toHaveLength(1)
+    expect(doc.considerations[0].considerationNumber).toBe(1)
+    expect(doc.considerations[0].sponsorResponseText).toBe('Provided.')
+  })
+})
+
+describe('parseCtisRfi — issue date', () => {
+  it('refuses an out-of-range timestamp rather than rolling it over', () => {
+    // Date.UTC turns 45/13/2026 into a real date in 2027. A wrong issue date is
+    // worse than a missing one: it reaches the audit trail and the analytics.
+    expect(parseCtisRfi(`x 45/13/2026 99:99\n${block({ n: '1', consideration: 'a' })}`).issuedAt)
+      .toBeNull()
+  })
+
+  it('refuses a day that does not exist in that month', () => {
+    expect(parseCtisRfi(`x 31/02/2026 10:00\n${block({ n: '1', consideration: 'a' })}`).issuedAt)
+      .toBeNull()
+  })
+
+  it('accepts a real leap day', () => {
+    expect(parseCtisRfi(`x 29/02/2024 10:00\n${block({ n: '1', consideration: 'a' })}`).issuedAt)
+      .toBe('2024-02-29T10:00:00.000Z')
+  })
+})
+
 describe('normaliseSection', () => {
   it('maps the export wording onto the canonical taxonomy', () => {
     expect(normaliseSection('Informed consent', 'PART_II')).toBe('Informed Consent')

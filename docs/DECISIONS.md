@@ -394,3 +394,35 @@ Every call the application makes passes named arguments and omits the rest, so s
 **Two things the data would not support, reported rather than dressed up.**
 - The effort model is assumptions, not measurement. Every input is `[VERIFY]` in docs/01 §8, so it ships as sliders producing a *range*, with the one measured input — the preventable share — labelled as measured. docs/01 §8: "judges respect an honest assumption far more than a fabricated statistic."
 - **The corpus contains no late responses.** The generator answers in 2–9 days against a 10-day window, so `answered_late` is always 0 and the clock-breach story cannot be demonstrated. The stat tile now reports open items instead. If the "a missed validation clock invalidates the application" beat is wanted in the demo, the seed needs to produce some overruns — a corpus design decision for the team, not one to make silently.
+
+---
+
+## ADR-029 — A document that cannot be filed never reaches the review screen
+**2026-08-28 · Accepted**
+
+**Context.** A CTIS export was uploaded whose header parsed perfectly — trial number, document reference, submission type and issue date all read — and whose body yielded zero considerations. It passed analysis, reached the review screen showing "0 considerations across 1 document", and offered a live **Approve and file** button. Pressing it would have failed: `commitIngestion()` refuses a document with no considerations. The user could only discover that after approving.
+
+Two separate defects met there. The parser only accepted field labels alone on their own line, and the fileability rules lived in `commitIngestion()` alone, where nothing earlier in the flow could consult them.
+
+**Decision.**
+
+*One fileability rule, three call sites.* `checkFileable()` in `lib/ingest/constants.ts` returns a discriminated union — the narrowed document, or the reason it cannot be filed. `analyseStored()` refuses the upload with it, `commitIngestion()` re-checks it against its own independent re-parse before writing, and the review screen uses it to decide whether to render an **Approve and file** button at all. A refusal at the analysis step lands beside the file name in the same list as every other unreadable upload, and the batch's good documents carry on (ADR-027).
+
+*Duplicates are also detected at analysis.* The commit step still refuses them — it must, since two uploads can race — but learning a document is already filed before reading twelve considerations is the difference between a warning and wasted work.
+
+*Inline field labels are accepted.* `Consideration number: 1` on one line, as well as the label-then-value form of the reference export. The inline value requires a colon, so the prose line "Consideration of the benefit-risk balance is required." is still read as text rather than as a label — which would have silently truncated the consideration. The one exception is the consideration number itself, whose value may be whitespace-separated because it is always a bare number.
+
+*Rate limits are sized against `MAX_BATCH`, not picked round.* Upload and analysis are consumed once per **file**. At 20 per five minutes a user could file two full batches and was then refused the third with "Too many uploads. Try again in 101 seconds" — during a demo, indistinguishable from a broken page. Both are now `MAX_BATCH × 6`. Committing is consumed once per **batch** and needs nothing like that headroom, so it stays at 30. Every limit is now spent *after* input validation rather than before it: a token spent on input that was never going to be accepted lets a malformed client burn a user's whole window without a single PDF being parsed, which is the only thing the limit exists to bound.
+
+*Uploads that are never filed are deleted.* Every abandoned review used to leave its PDFs in the private bucket for ever, with nothing pointing at them. `discardUploads()` removes them on discard, on "don't file this one", on refusal at analysis, and on refusal at commit. It never removes a key an `rfi_document` row points at, whoever asks — storage keys are guessable in shape, and without that check one ingestor could destroy the source file behind another team's filed document.
+
+**Consequences.**
+- The failure a user sees is "this file could not be read, and here is what was read instead", at the moment of upload. `checkFileable()` names what it *did* parse, so a wrong file is distinguishable from a parser that failed on the right one.
+- The review screen's guard is, in normal operation, unreachable. It stays deliberately: if the server side is ever relaxed, the failure mode is a document shown as unfileable rather than a reviewer approving something that was never going to be written.
+- The commit form's state lives in `useActionState`, which does not reset when the rest of the client's state does — a failed filing left its error under the *next* batch's review screen. The review flow is now its own component, remounted on a new review. Its key is a review counter, not the document list: removing one document from a batch must not discard the corrections made to the other nine.
+
+**Also in this pass.**
+- The ingest page still advertised "a text PDF, a scan, or a screenshot. Scans and images are read with OCR" — copy that outlived ADR-021 by two commits, on the one screen where the promise is immediately falsifiable.
+- `?next=` on sign-in was validated with `startsWith('/')`. `//evil.example` satisfies that and is a protocol-relative URL, so it was an open redirect that fired on a freshly authenticated session. It now requires a path that does not continue with a slash or backslash, and an invalid value falls back to `/search` rather than blocking the sign-in.
+- `parseIssuedAt` accepted `45/13/2026 99:99` and rolled it over into a real date in 2027. A wrong issue date is worse than a missing one: it reaches the audit trail and every turnaround figure on the analytics page.
+- The similarity driver said "Resembles 3 past sections" even when nothing cleared the precedent floor. It now says so.

@@ -6,7 +6,7 @@ import { parseCtisRfi, type ParsedDocument } from './parse-ctis'
 import type { Database } from '@/lib/db/types'
 
 export { RFI_BUCKET, MAX_UPLOAD_BYTES } from './constants'
-import { RFI_BUCKET, MAX_UPLOAD_BYTES } from './constants'
+import { RFI_BUCKET, MAX_UPLOAD_BYTES, checkFileable } from './constants'
 
 type TeamRole = Database['public']['Enums']['team_role']
 
@@ -85,17 +85,13 @@ export async function commitIngestion(input: CommitInput): Promise<CommitResult>
   if (!extraction.ok) return { ok: false, error: extraction.error }
 
   const extracted = extraction.extraction
-  const parsed = parseCtisRfi(extracted.text)
 
-  if (!parsed.documentRef || !parsed.euTrialNumber) {
-    return {
-      ok: false,
-      error: 'The document has no readable document reference or trial number, so it cannot be filed.',
-    }
-  }
-  if (parsed.considerations.length === 0) {
-    return { ok: false, error: 'No considerations were found in the document.' }
-  }
+  // Re-checked against this re-parse, never trusted from the review screen. The
+  // same function decided whether to offer the button in the first place, so the
+  // two cannot drift apart.
+  const fileable = checkFileable(parseCtisRfi(extracted.text))
+  if (!fileable.ok) return { ok: false, error: fileable.problem }
+  const parsed = fileable.document
 
   // --- Reject duplicates -------------------------------------------------
   const { data: existing } = await db
@@ -312,11 +308,84 @@ export async function analyseStored(
 
   const extracted = extraction.extraction
 
+  // Refuse here rather than at the far end of the review screen.
+  //
+  // A document that cannot be filed must not reach review at all: the reviewer
+  // would read an extraction, press "Approve and file", and only then be told
+  // nothing was going to be written. Refusing at this step puts the reason
+  // beside the file name, in the same list as every other unreadable upload, and
+  // lets the batch's good documents carry on.
+  const fileable = checkFileable(parseCtisRfi(extracted.text))
+  if (!fileable.ok) {
+    await db.storage.from(RFI_BUCKET).remove([storageKey])
+    return { ok: false, error: fileable.problem }
+  }
+  const parsed = fileable.document
+
+  // Likewise for a document already in the repository. The commit step refuses
+  // it — it must, since two uploads can race — but finding out before reading
+  // twelve considerations is the difference between a warning and wasted work.
+  const { data: existing } = await db
+    .from('rfi_document')
+    .select('id')
+    .eq('document_ref', parsed.documentRef)
+    .maybeSingle()
+
+  if (existing) {
+    await db.storage.from(RFI_BUCKET).remove([storageKey])
+    return {
+      ok: false,
+      error: `${parsed.documentRef} has already been filed. Nothing was changed.`,
+    }
+  }
+
   return {
     ok: true,
     storageKey,
-    parsed: parseCtisRfi(extracted.text),
+    parsed,
     pageCount: extracted.pageCount,
     source: extracted.source,
   }
+}
+
+/**
+ * Deletes uploads that were never filed.
+ *
+ * Every abandoned review used to leave its PDFs in the bucket for ever: the
+ * reviewer presses "Discard and start again", the browser forgets the storage
+ * keys, and nothing else ever refers to them. Over a demo week that is a private
+ * bucket slowly filling with documents no row points at.
+ *
+ * A key that IS referenced by an `rfi_document` row is never deleted, whoever
+ * asks. Storage keys are guessable in shape, so without that check one ingestor
+ * could destroy the source file behind another team's filed document — the
+ * evidence the audit trail exists to preserve.
+ */
+export async function discardUploads(storageKeys: string[]): Promise<number> {
+  if (storageKeys.length === 0) return 0
+
+  const db = createServiceClient()
+  const unique = [...new Set(storageKeys)]
+
+  const { data: referenced, error } = await db
+    .from('rfi_document')
+    .select('source_file_path')
+    .in('source_file_path', unique)
+
+  if (error) {
+    log.warn('ingest.discard_lookup_failed', { keys: unique.length }, error)
+    return 0
+  }
+
+  const filed = new Set((referenced ?? []).map((r) => r.source_file_path))
+  const removable = unique.filter((key) => !filed.has(key))
+  if (removable.length === 0) return 0
+
+  const { error: removeError } = await db.storage.from(RFI_BUCKET).remove(removable)
+  if (removeError) {
+    log.warn('ingest.discard_failed', { keys: removable.length }, removeError)
+    return 0
+  }
+
+  return removable.length
 }
