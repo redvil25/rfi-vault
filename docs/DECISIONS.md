@@ -426,3 +426,36 @@ Two separate defects met there. The parser only accepted field labels alone on t
 - `?next=` on sign-in was validated with `startsWith('/')`. `//evil.example` satisfies that and is a protocol-relative URL, so it was an open redirect that fired on a freshly authenticated session. It now requires a path that does not continue with a slash or backslash, and an invalid value falls back to `/search` rather than blocking the sign-in.
 - `parseIssuedAt` accepted `45/13/2026 99:99` and rolled it over into a real date in 2027. A wrong issue date is worse than a missing one: it reaches the audit trail and every turnaround figure on the analytics page.
 - The similarity driver said "Resembles 3 past sections" even when nothing cleared the precedent floor. It now says so.
+
+---
+
+## ADR-030 — Feature 3: retrieve, then gate, then draft — and record the refusals
+**2026-08-28 · Accepted**
+
+**Context.** Drafting was the last unbuilt feature and the one the solution overview leads with. It is also the one that can lose the competition outright: a tool that invents a regulatory fact in front of a Novo Nordisk audience is finished, whatever else it does well.
+
+**Decision.**
+
+*Order is the safety property.* Retrieve, then gate, then draft. Nothing reaches the model until the repository has proved it holds an approved response close enough to answer from. A pipeline that drafts first and checks afterwards has already produced the text it was supposed to refuse to produce, and every subsequent control is cosmetic.
+
+*A refusal is a first-class outcome, and it is stored.* `response_draft` records every generation attempt, refusals included, with the reason, the nearest precedents, and the similarity that fell short. Two consequences. The screen gives a refusal the same room as a draft, because "we looked, here is what we found, it is not close enough" is more use to a reviewer than a shrug. And the corpus-level refusal rate becomes a measurable number rather than a claim — storing only successes would make the deck's central assertion unprovable.
+
+*Without embeddings, the answer is no.* With no model configured there is no similarity to measure, so drafting refuses rather than falling back to keyword retrieval. A keyword hit is evidence that two records share words, not that one answers the other, and dressing it up as precedent would be the exact failure this feature exists to prevent. Verified end to end in that state today: `npm run verify:draft`, 15 of 15.
+
+*Every claim carries an id, and an invented id is dropped.* `citations` is `.min(1)` in the Zod schema, so a draft with no citation fails at the tool-call boundary rather than being talked out of by the prompt. A cited id the model was never given is a fabricated citation; it is filtered out and logged rather than passed through, because a citation that does not resolve is worse than none.
+
+*The verifier is a different model, deliberately starved of context.* `gemini-2.5-pro` grades each sentence against the same precedents and nothing else — told explicitly that its own knowledge of EU CTR is not evidence here. A grader allowed outside knowledge cannot detect a draft that used outside knowledge. Groundedness counts PARTIAL as half, and is null rather than 0 or 1 for an empty draft: no sentences is an absent measurement, not a perfect score. If the verifier cannot run, the draft is shown labelled **ungraded** rather than shown clean.
+
+*Sentence splitting is conservative on purpose.* "version 3.0" and "section No. 4" must not split, because a fragment graded alone reads as unsupported and would drag down the very figure the deck publishes.
+
+**The status machine.** `DRAFT → IN_REVIEW → APPROVED → SUBMITTED`, with request-changes as the only way back, and `SUBMITTED` terminal — the correction path for a filed response is a new request for information, which is how the regulation works. The rules are pure and unit-tested; the executor is left with nothing to decide.
+
+Transitions run through the **caller's** client, not the service role. `write_own_team` in 0012 is the authorisation; routing this through the service client would bypass the policy and leave the team check living only in TypeScript. The pure rules run first so a user gets a sentence rather than a policy violation, but the database has the last word. The update is conditioned on the status that was read, so two reviewers on the same consideration produce a "someone else changed this" rather than a silent overwrite. A failed audit write rolls the status back: a state change with no record of who made it is not a state change we keep.
+
+**The feedback loop, and where it stops.** Approving re-embeds the response so it becomes precedent for the next search. Re-embedding never fails the transition: approval is a regulatory act that either happened or did not, and refusing it because an embedding call timed out would be indefensible. The caller is told, and the UI says "approved, not yet searchable by meaning" rather than implying a loop that has not closed.
+
+**Consequences and things deliberately not done.**
+- **No `/app/api` routes.** The layout in CLAUDE.md promised `/api/draft`; it is a Server Action beside the screen instead, which keeps the Zod boundary, the RLS-scoped client and the audit emission in one file. CLAUDE.md is corrected rather than the code bent to match it. A REST surface is worth adding when something outside this app needs to call in, and nothing does.
+- **No separation of duties.** Nothing stops the author of a draft approving it. That is a real gap for a regulatory workflow and it is stated here rather than left to be discovered: with one demo account per team, enforcing four-eyes would have made the happy path undemonstrable. The seam is `mayTransition()`.
+- **Drafting is limited to six per five minutes per user.** It is the only endpoint here that costs money, and the ceiling is on spend, not on politeness.
+- **Groundedness has no published corpus-level figure yet.** It cannot have one until the corpus is embedded. `docs/metrics/latest.json` still reports three of four retrieval configurations as `ran: false` for the same reason.

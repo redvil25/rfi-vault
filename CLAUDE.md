@@ -47,6 +47,11 @@
 
 **Host-portability rule.** Because the host is undecided, keep the app a plain Next.js application: no host-specific config files, no proprietary runtime APIs, no platform-only primitives. Long-running work goes in route handlers or scripts, not in a vendor queue product.
 
+There are no `/app/api` route handlers. Every mutation is a Server Action beside
+the screen that calls it, which keeps the Zod boundary, the RLS-scoped client and
+the audit emission in one file instead of three (ADR-030). A REST surface is a
+thing to add when something outside this app needs to call in, and nothing does.
+
 `AGENTS.md` is generated and re-written by `next dev`. Do not hand-edit it; commit it when it changes.
 
 ## 4. Repository layout
@@ -57,16 +62,14 @@
   /(app)
     /search             Feature 1 — hybrid search
     /assess             Feature 2 — proactive risk scoring
-    /rfi/[id]           RFI detail + Feature 3 draft generation
+    /rfi/[id]           RFI detail, Feature 3 draft generation, the status machine
+    /ingest             document upload + parse
     /analytics          Feature 4 — dashboard
     /audit              Feature 5 — audit trail viewer
-  /api
-    /ingest             document upload + parse + embed
-    /search             hybrid search endpoint
-    /assess             risk scoring endpoint
-    /draft              RAG draft generation
 /lib
   /ai                   embeddings, prompts, LLM clients, verifier
+  /draft                precedent retrieval, the confidence gate, draft orchestration
+  /workflow             the response status machine and its executor
   /search               RRF fusion, reranking
   /risk                 rule engine + scoring model
   /db                   typed Supabase client, queries
@@ -76,6 +79,7 @@
   /functions            SQL functions: hybrid_search, rfi_stats
 /scripts
   /seed                 synthetic corpus generator (deterministic)
+  /verify               live checks against the linked project, run before a demo
   /eval                 retrieval + risk + groundedness evaluation harness
 /docs                   all planning + knowledge docs (read these)
 /e2e                    Playwright specs
@@ -98,6 +102,7 @@ npm run verify           # live smoke test: RLS isolation, search, audit immutab
 npm run verify:ingest    # live end-to-end ingestion test against the fixture PDF
 npm run verify:assess    # live end-to-end risk assessment against the seeded corpus
 npm run verify:dashboards # live analytics + audit checks, incl. proving audit immutability
+npm run verify:draft     # live drafting refusal, status machine, and the approve-to-share loop
 npm run setup:storage    # create the private rfi-documents bucket (once per project)
 npm run ingest -- <pdf>  # parse a CTIS RFI export and print the extraction (read-only)
 npm run fixtures:pdf     # regenerate fixtures/rfi-example-ctis.pdf (needs python + reportlab)

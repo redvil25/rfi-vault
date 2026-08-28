@@ -1,6 +1,3 @@
-// Generated from the live Supabase project (rfi-vault, eu-central-1).
-// Regenerate with `npm run db:types` after every migration. Do not hand-edit.
-
 export type Json =
   | string
   | number
@@ -216,6 +213,77 @@ export type Database = {
           occurred_at?: string
         }
         Relationships: []
+      }
+      response_draft: {
+        Row: {
+          attachments_required: string[]
+          citations: Json
+          consideration_id: string
+          created_at: string
+          created_by: string | null
+          deltas: Json
+          draft_text: string | null
+          groundedness: number | null
+          id: string
+          max_similarity: number | null
+          model: string | null
+          model_confidence: number | null
+          open_questions: string[]
+          precedent_ids: string[]
+          prompt_hash: string | null
+          refusal_reason: string | null
+          refused: boolean
+          verdicts: Json
+        }
+        Insert: {
+          attachments_required?: string[]
+          citations?: Json
+          consideration_id: string
+          created_at?: string
+          created_by?: string | null
+          deltas?: Json
+          draft_text?: string | null
+          groundedness?: number | null
+          id?: string
+          max_similarity?: number | null
+          model?: string | null
+          model_confidence?: number | null
+          open_questions?: string[]
+          precedent_ids?: string[]
+          prompt_hash?: string | null
+          refusal_reason?: string | null
+          refused?: boolean
+          verdicts?: Json
+        }
+        Update: {
+          attachments_required?: string[]
+          citations?: Json
+          consideration_id?: string
+          created_at?: string
+          created_by?: string | null
+          deltas?: Json
+          draft_text?: string | null
+          groundedness?: number | null
+          id?: string
+          max_similarity?: number | null
+          model?: string | null
+          model_confidence?: number | null
+          open_questions?: string[]
+          precedent_ids?: string[]
+          prompt_hash?: string | null
+          refusal_reason?: string | null
+          refused?: boolean
+          verdicts?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "response_draft_consideration_id_fkey"
+            columns: ["consideration_id"]
+            isOneToOne: false
+            referencedRelation: "rfi_consideration"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       rfi_consideration: {
         Row: {

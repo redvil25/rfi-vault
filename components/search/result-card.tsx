@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import type { SearchHit } from '@/lib/search/manual'
 import {
   BAND_GUIDANCE, BAND_LABELS, BAND_STYLE, type ConfidenceBand,
@@ -148,9 +149,13 @@ export function ResultCard({
             <span>{hit.therapeuticArea}</span>
           </>
         )}
-        <span className="ml-auto rounded bg-background px-1.5 py-0.5">
-          matched on {hit.matchedOn}
-        </span>
+        <span className="rounded bg-background px-1.5 py-0.5">matched on {hit.matchedOn}</span>
+        <Link
+          href={`/rfi/${hit.id}`}
+          className="ml-auto text-[11px] font-medium text-accent hover:underline"
+        >
+          Open and draft a response →
+        </Link>
       </div>
     </article>
   )

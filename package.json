@@ -23,7 +23,8 @@
     "verify:ingest": "tsx scripts/verify/ingest-e2e.ts",
     "embed": "tsx scripts/embed/run.ts",
     "verify:assess": "tsx scripts/verify/assess.ts",
-    "verify:dashboards": "tsx scripts/verify/dashboards.ts"
+    "verify:dashboards": "tsx scripts/verify/dashboards.ts",
+    "verify:draft": "tsx scripts/verify/draft.ts"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.41",
