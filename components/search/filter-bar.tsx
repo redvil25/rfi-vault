@@ -9,7 +9,21 @@ interface Props {
   active: Record<string, string | undefined>
 }
 
-const SELECTS: { key: string; label: string; facet?: string; options?: [string, string][] }[] = [
+const SELECTS: {
+  key: string
+  label: string
+  facet?: string
+  options?: [string, string][]
+  /**
+   * Sort the facet values alphabetically instead of by count.
+   *
+   * Facets arrive most-frequent-first, which is right for a short list where the
+   * common values are the useful ones. A protocol code is unique to one trial, so
+   * every count is roughly the same and frequency order is effectively random —
+   * in a list this long the only way to find a known code is alphabetically.
+   */
+  sortAlpha?: boolean
+}[] = [
   { key: 'part', label: 'Application part', facet: 'section_part' },
   { key: 'memberState', label: 'Member State', facet: 'member_state' },
   { key: 'category', label: 'Category', facet: 'category' },
@@ -18,6 +32,8 @@ const SELECTS: { key: string; label: string; facet?: string; options?: [string, 
   { key: 'section', label: 'Document type', facet: 'section' },
   { key: 'therapeuticArea', label: 'Therapeutic area', facet: 'therapeutic_area' },
   { key: 'impName', label: 'IMP', facet: 'imp_name' },
+  // The sponsor's own study identifier, not the EU trial number — see 0021.
+  { key: 'protocolCode', label: 'Protocol code', facet: 'protocol_code', sortAlpha: true },
   {
     key: 'phase',
     label: 'Phase',
@@ -71,12 +87,14 @@ export function FilterBar({ facets, active }: Props) {
   return (
     <div className="flex flex-wrap items-end gap-3">
       {SELECTS.map((s) => {
+        const facetValues = facets[s.facet ?? ''] ?? []
+        const ordered = s.sortAlpha
+          ? [...facetValues].sort((a, b) => a.value.localeCompare(b.value, 'en'))
+          : facetValues
+
         const options: [string, string][] =
           s.options ??
-          (facets[s.facet ?? ''] ?? []).map((f) => [
-            f.value,
-            `${label(s.key, f.value)} (${f.count})`,
-          ])
+          ordered.map((f) => [f.value, `${label(s.key, f.value)} (${f.count})`])
 
         if (options.length === 0) return null
 

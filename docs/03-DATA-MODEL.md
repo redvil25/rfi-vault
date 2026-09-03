@@ -27,9 +27,11 @@ create type team_role       as enum ('RA_CLINICAL','AFFILIATE','CTA_MANAGEMENT',
 ```sql
 create table trial (
   id              uuid primary key default gen_random_uuid(),
-  eu_trial_number text not null unique,            -- 2024-519530-24-00
+  eu_trial_number text not null unique,            -- 2024-519530-24-00, the EU CT number
+  protocol_code   text,                            -- NN1234-4567, the sponsor's own study id (0021)
   short_title     text not null,
   therapeutic_area text,
+  imp_name        text,                            -- NN-1234, investigational medicinal product (0018)
   phase           text,                            -- Phase I..IV
   sponsor         text not null default 'Sponsor A',
   member_states   text[] not null default '{}',

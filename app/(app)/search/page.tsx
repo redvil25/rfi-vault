@@ -50,6 +50,7 @@ export default async function SearchPage({
       memberState: params.memberState,
       therapeuticArea: params.therapeuticArea,
       impName: params.impName,
+      protocolCode: params.protocolCode,
     }),
   ])
 
@@ -60,6 +61,7 @@ export default async function SearchPage({
     section: params.section,
     therapeuticArea: params.therapeuticArea,
     impName: params.impName,
+    protocolCode: params.protocolCode,
     phase: params.phase,
     submissionType: params.submissionType,
     sort: params.sort,

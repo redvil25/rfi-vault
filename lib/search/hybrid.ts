@@ -172,6 +172,7 @@ export async function hybridSearch(params: SearchParams): Promise<HybridResult> 
     f_approved_only: params.status === 'APPROVED' ? true : undefined,
     f_therapeutic_area: params.therapeuticArea ?? undefined,
     f_imp_name: params.impName ?? undefined,
+    f_protocol_code: params.protocolCode ?? undefined,
     rrf_k: serverEnv().RRF_K,
   })
 

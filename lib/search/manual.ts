@@ -25,6 +25,8 @@ export const searchParamsSchema = z.object({
   category: z.string().trim().max(60).optional(),
   therapeuticArea: z.string().trim().max(80).optional(),
   impName: z.string().trim().max(40).optional(),
+  /** Sponsor protocol code, e.g. NN1234-4567 — not the EU trial number. */
+  protocolCode: z.string().trim().max(60).optional(),
   phase: z.enum(['VALIDATION', 'ASSESSMENT_PART_I', 'ASSESSMENT_PART_II']).optional(),
   submissionType: z
     .enum(['INITIAL', 'SUBSTANTIAL_MODIFICATION', 'ADDITIONAL_MS'])
@@ -124,6 +126,7 @@ export async function searchConsiderations(
     f_to: params.to ?? undefined,
     f_therapeutic_area: params.therapeuticArea ?? undefined,
     f_imp_name: params.impName ?? undefined,
+    f_protocol_code: params.protocolCode ?? undefined,
     sort: params.sort,
     lim: params.pageSize,
     off: (params.page - 1) * params.pageSize,
@@ -156,6 +159,7 @@ export async function searchFacets(params: {
   memberState?: string
   therapeuticArea?: string
   impName?: string
+  protocolCode?: string
 }): Promise<Record<string, Facet[]>> {
   const supabase = await createClient()
 
@@ -165,6 +169,7 @@ export async function searchFacets(params: {
     f_member_state: params.memberState ?? undefined,
     f_therapeutic_area: params.therapeuticArea ?? undefined,
     f_imp_name: params.impName ?? undefined,
+    f_protocol_code: params.protocolCode ?? undefined,
   })
 
   if (error) throw new Error(`search_facets failed: ${error.message}`)

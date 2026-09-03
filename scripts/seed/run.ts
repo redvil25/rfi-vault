@@ -121,6 +121,8 @@ interface TrialRow {
   therapeutic_area: string
   /** Investigational medicinal product code. Synthetic, like the rest of the corpus. */
   imp_name: string
+  /** Sponsor protocol code — the study's own identifier, not the EU CT number. */
+  protocol_code: string
   phase: string
   sponsor: string
   member_states: string[]
@@ -175,11 +177,15 @@ function generate() {
     // title names one product and whose imp_name says another is the kind of
     // inconsistency a judge spots immediately.
     const impName = `NN-${int(1000, 9999)}`
+    // The sponsor's own study identifier. Built from the same IMP code so the
+    // title, imp_name and protocol_code on a row can never name two products.
+    const protocolCode = `${impName.replace('-', '')}-${String(int(1000, 9999))}`
     trials.push({
       eu_trial_number: `${year}-${String(int(500000, 599999))}-${int(10, 42)}-00`,
       short_title: `A ${pick(TRIAL_PHASES)} Trial of ${impName} in ${area}`,
       therapeutic_area: area,
       imp_name: impName,
+      protocol_code: protocolCode,
       phase: pick(TRIAL_PHASES),
       sponsor: 'Sponsor A',
       member_states: states,
@@ -406,9 +412,10 @@ async function main() {
 
   const trialIds: string[] = []
   await chunked(trials, 200, async (batch) => {
-    // `imp_name` arrives with 0018 and lib/db/types.ts is generated from the
-    // linked project, so the generated Insert type does not know about it yet.
-    // Regenerate with `npm run db:types` after migrating and this cast can go.
+    // `imp_name` arrives with 0018 and `protocol_code` with 0021; lib/db/types.ts
+    // is generated from the linked project, so the generated Insert type lags a
+    // migration that has not been applied there yet. Regenerate with
+    // `npm run db:types` after migrating and this cast can go.
     const { data, error } = await db
       .from('trial')
       .insert(batch as never)

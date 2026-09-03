@@ -459,3 +459,25 @@ Transitions run through the **caller's** client, not the service role. `write_ow
 - **No separation of duties.** Nothing stops the author of a draft approving it. That is a real gap for a regulatory workflow and it is stated here rather than left to be discovered: with one demo account per team, enforcing four-eyes would have made the happy path undemonstrable. The seam is `mayTransition()`.
 - **Drafting is limited to six per five minutes per user.** It is the only endpoint here that costs money, and the ceiling is on spend, not on politeness.
 - **Groundedness has no published corpus-level figure yet.** It cannot have one until the corpus is embedded. `docs/metrics/latest.json` still reports three of four retrieval configurations as `ran: false` for the same reason.
+
+---
+
+## ADR-031 — The protocol code is a filter, not a rename of the EU trial number
+**2026-09-03 · Accepted**
+
+**Context.** The team asked for a protocol code dropdown on search. No such field existed. The tempting shortcut was to relabel `trial.eu_trial_number` — the values are already there, already unique per trial, and the dropdown would have taken one line.
+
+**Decision.** `0021` adds `trial.protocol_code` as its own column. The two identifiers are not the same thing: `eu_trial_number` (`2024-519530-24-00`) is the EU CT number CTIS issues and the one a Member State quotes back in a request for information, while the protocol code is the sponsor's own identifier for the study — what is on the protocol cover page and what a study manager says out loud. CLAUDE.md §6 makes exact CTIS vocabulary a scoring signal with this audience, and a dropdown labelled "Protocol code" that filters on the EU CT number is precisely the slip that costs those marks.
+
+The value is synthetic and derived from the IMP the trial already carries (`NN-1234` → `NN1234-4567`), generated once in the seed and used for both, so title, `imp_name` and `protocol_code` on one row can never name two different products — the same rule ADR-026 set for the IMP. Existing corpora are backfilled from `imp_name` with a serial derived from the EU trial number, so the column is populated without a reseed and the value is stable rather than random.
+
+The filter flows through `search_considerations`, `hybrid_search` *and* `search_facets`, for the reason ADR-026 gives: a filter present in one and absent from another produces counts that do not match the results. All three previous signatures are dropped explicitly before being recreated — `create or replace` overloads rather than replaces, which is the bug ADR-026 exists to remember.
+
+**Consequences.**
+- The dropdown is facet-scoped like every other filter, so the list narrows as the other filters are set. With 130 trials in the corpus it still opens at 130 entries.
+- Those entries are sorted **alphabetically**, not by count. A protocol code is unique to one trial, so every count is near-identical and frequency order is effectively random; in a list this long, alphabetical is the only way to find a code you already know.
+- **The free-text box does not search protocol codes.** Typing a code finds nothing — `search_considerations` matches identifiers on `document_ref` and `eu_trial_number` only. That is a deliberate scope limit, not an oversight, and it is the obvious next thing to add: the identifier a study manager knows best being the one thing the search box cannot find is a demo question waiting to be asked.
+
+**What applying it caught.** The 0021 backfill built the code as `'NN' || replace(imp_name, '-', '')`, but `imp_name` already starts with NN — every backfilled row came out `NNNN1065-9412`, a shape the seed would never produce. All 130 rows were wrong and nothing in the build could have said so: the column is text, the filter still worked, and the dropdown still populated. It was found by counting the column after applying the migration rather than by trusting it. `0022` recomputes from `imp_name` (forward-only; 0021 was already applied). Verified after: 130 codes, 130 distinct, zero malformed against `^NN[0-9]{4}-[0-9]{4}$`, and every code agrees with its row's `imp_name`. Filtering by one code returns 11 considerations across exactly 1 trial.
+
+**Twelve trials have no protocol code, deliberately.** They are the rows the ingestion path creates when a filed document references an EU trial number the repository has not seen: no IMP, a placeholder title, and no protocol code stated anywhere in the document. Minting one would be inventing a regulatory identifier, which is the behaviour CLAUDE.md §2.2 exists to forbid. They are absent from the dropdown and from any protocol-code-filtered search, and the facet counts show it — `protocol_code` totals 940 rows where `category` totals 952, the same 12-row gap `imp_name` already had.

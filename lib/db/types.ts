@@ -512,6 +512,7 @@ export type Database = {
           imp_name: string | null
           member_states: string[]
           phase: string | null
+          protocol_code: string | null
           short_title: string
           sponsor: string
           therapeutic_area: string | null
@@ -523,6 +524,7 @@ export type Database = {
           imp_name?: string | null
           member_states?: string[]
           phase?: string | null
+          protocol_code?: string | null
           short_title: string
           sponsor?: string
           therapeutic_area?: string | null
@@ -534,6 +536,7 @@ export type Database = {
           imp_name?: string | null
           member_states?: string[]
           phase?: string | null
+          protocol_code?: string | null
           short_title?: string
           sponsor?: string
           therapeutic_area?: string | null
@@ -589,6 +592,7 @@ export type Database = {
           f_imp_name?: string
           f_member_state?: string
           f_part?: Database["public"]["Enums"]["section_part"]
+          f_protocol_code?: string
           f_section?: string
           f_therapeutic_area?: string
           match_count?: number
@@ -659,6 +663,7 @@ export type Database = {
           f_member_state?: string
           f_part?: Database["public"]["Enums"]["section_part"]
           f_phase?: Database["public"]["Enums"]["rfi_phase"]
+          f_protocol_code?: string
           f_section?: string
           f_status?: Database["public"]["Enums"]["response_status"]
           f_submission_type?: Database["public"]["Enums"]["submission_type"]
@@ -701,6 +706,7 @@ export type Database = {
           f_imp_name?: string
           f_member_state?: string
           f_part?: Database["public"]["Enums"]["section_part"]
+          f_protocol_code?: string
           f_therapeutic_area?: string
           q?: string
         }
