@@ -203,6 +203,22 @@ export function PreventabilityBar({ preventability }: { preventability: Preventa
 }
 
 /**
+ * Working hours behind one full-time equivalent, per year.
+ *
+ * The effort model is built out of hours per consideration, because that is the
+ * unit a regulatory colleague can sanity-check from experience. It is reported
+ * in FTE, because that is the unit a budget conversation is held in. This is the
+ * only bridge between the two, and it is an assumption like every other input
+ * here: 1,720 h is a European working year net of holiday and public holidays.
+ */
+const HOURS_PER_FTE_YEAR = 1720
+
+/** Hours to FTE, kept to one decimal — a business case is not precise to 0.01 FTE. */
+function toFte(hours: number) {
+  return Math.round((hours / HOURS_PER_FTE_YEAR) * 10) / 10
+}
+
+/**
  * The business case, as a range driven by assumptions the reader controls.
  *
  * docs/01-DOMAIN.md §8 is explicit about this: every input is marked [VERIFY]
@@ -210,6 +226,10 @@ export function PreventabilityBar({ preventability }: { preventability: Preventa
  * not a single number — judges respect an honest assumption far more than a
  * fabricated statistic". So the assumptions are on screen and adjustable, and
  * the only measured input, the preventable share, is labelled as such.
+ *
+ * The two outputs are stated in FTE rather than hours. "Fourteen thousand hours"
+ * is a number nobody in the room can weigh; "eight FTE" is a headcount line an
+ * approver already has an opinion about.
  */
 export function EffortModel({ preventableShare }: { preventableShare: number }) {
   const [applications, setApplications] = useState(650)
@@ -224,10 +244,10 @@ export function EffortModel({ preventableShare }: { preventableShare: number }) 
     const avoidedLow = base * hoursLow * preventableShare * (effectiveness / 100)
     const avoidedHigh = base * hoursHigh * preventableShare * (effectiveness / 100)
     return {
-      annualLow: Math.round(base * hoursLow),
-      annualHigh: Math.round(base * hoursHigh),
-      avoidedLow: Math.round(avoidedLow),
-      avoidedHigh: Math.round(avoidedHigh),
+      annualLow: toFte(base * hoursLow),
+      annualHigh: toFte(base * hoursHigh),
+      avoidedLow: toFte(avoidedLow),
+      avoidedHigh: toFte(avoidedHigh),
     }
   }, [applications, rfiShare, considerations, hoursLow, hoursHigh, effectiveness, preventableShare])
 
@@ -288,7 +308,7 @@ export function EffortModel({ preventableShare }: { preventableShare: number }) 
             Annual effort on RFI responses
           </dt>
           <dd className="mt-1 font-mono text-lg">
-            {range.annualLow.toLocaleString('en-GB')}–{range.annualHigh.toLocaleString('en-GB')} h
+            {range.annualLow.toLocaleString('en-GB')}–{range.annualHigh.toLocaleString('en-GB')} FTE
           </dd>
         </div>
         <div>
@@ -296,10 +316,16 @@ export function EffortModel({ preventableShare }: { preventableShare: number }) 
             Effort avoidable, on these assumptions
           </dt>
           <dd className="mt-1 font-mono text-lg text-accent">
-            {range.avoidedLow.toLocaleString('en-GB')}–{range.avoidedHigh.toLocaleString('en-GB')} h
+            {range.avoidedLow.toLocaleString('en-GB')}–{range.avoidedHigh.toLocaleString('en-GB')} FTE
           </dd>
         </div>
       </dl>
+
+      <p className="mt-3 text-xs text-muted">
+        One FTE is {HOURS_PER_FTE_YEAR.toLocaleString('en-GB')} working hours per year — a
+        European working year net of holiday. That conversion is an assumption too, and
+        moving it moves both figures proportionally.
+      </p>
 
       <p className="mt-4 text-xs text-muted">
         The harder argument to dismiss is the second-order one: a missed validation clock
