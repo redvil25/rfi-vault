@@ -81,7 +81,11 @@ export default async function AnalyticsPage() {
         <Stat
           label="Preventable"
           value={`${Math.round(preventability.share * 100)}%`}
-          detail="in categories a pre-submission check can catch"
+          detail={
+            preventability.unclassified > 0
+              ? `of ${preventability.classified.toLocaleString('en-GB')} classified, in categories a pre-submission check can catch`
+              : 'in categories a pre-submission check can catch'
+          }
         />
         <Stat
           label="Median turnaround"
@@ -189,7 +193,7 @@ export default async function AnalyticsPage() {
         <p className="mt-1 mb-3 max-w-2xl text-sm text-muted">
           Split by whether the taxonomy marks the category as catchable by a deterministic
           pre-submission check. Tier 1 and Tier 2 — fees and document handling — account for{' '}
-          {Math.round(preventability.tier12Share * 100)}% of the volume on their own.
+          {Math.round(preventability.tier12Share * 100)}% of the classified volume on their own.
         </p>
         <div className="rounded-lg border border-border bg-surface p-4">
           <PreventabilityBar preventability={preventability} />

@@ -1,6 +1,6 @@
 import { createServiceClient } from '@/lib/db/service'
 import { log } from '@/lib/log'
-import { CATEGORY_BY_ID } from '@/lib/domain/taxonomy'
+import { CATEGORY_BY_ID, UNMAPPED_SECTION } from '@/lib/domain/taxonomy'
 import { extractDocument, type ExtractionSource } from './extract'
 import { parseCtisRfi, type ParsedDocument } from './parse-ctis'
 import type { Database } from '@/lib/db/types'
@@ -64,6 +64,26 @@ export type CommitResult =
  * Authorisation is therefore enforced here, before any write, and every commit
  * emits an audit event naming the actor. See ADR-013.
  */
+/**
+ * The section a consideration is filed under, or an admission that we do not know.
+ *
+ * Takes only the *mapped* section on purpose. This used to read
+ * `c.section ?? c.sectionRaw ?? 'Regulatory'`, which undid the parser's own
+ * refusal: normaliseSection() rejects anything that does not match the taxonomy
+ * and warns about it, and then this wrote the rejected string anyway. Member
+ * State names — "Spain", "France", "Germany" — reached the database that way
+ * and appeared in the search "Document type" dropdown beside real application
+ * section parts. The 'Regulatory' fallback was worse still: it is the
+ * highest-volume section, so a misfiled row vanishes into the biggest bucket
+ * and skews the base rates the risk engine reads back out.
+ *
+ * `section` is NOT NULL, so something must be written; the only honest
+ * something is a value that says so.
+ */
+export function sectionForRow(mapped: string | null): string {
+  return mapped ?? UNMAPPED_SECTION
+}
+
 export async function commitIngestion(input: CommitInput): Promise<CommitResult> {
   if (!canIngest(input.actorTeam)) {
     return { ok: false, error: 'Your team is not permitted to file documents.' }
@@ -170,7 +190,7 @@ export async function commitIngestion(input: CommitInput): Promise<CommitResult>
       trial_id: trial.id,
       consideration_number: c.considerationNumber,
       section_part: c.sectionPart ?? 'PART_I',
-      section: c.section ?? c.sectionRaw ?? 'Regulatory',
+      section: sectionForRow(c.section),
       document_name: c.documentName,
       member_state: memberState,
       category,

@@ -525,6 +525,18 @@ export const CATEGORY_BY_ID = new Map(CATEGORIES.map((c) => [c.id, c]))
 export const MEMBER_STATE_BY_CODE = new Map(MEMBER_STATES.map((m) => [m.code, m]))
 export const ALL_SECTIONS = [...PART_I_SECTIONS, ...PART_II_SECTIONS]
 
+/**
+ * Filed when the parser could not map the printed section onto the taxonomy.
+ *
+ * `section` is NOT NULL, so ingestion has to write something. The something has
+ * to be a value that reads as "we could not tell", because the alternatives are
+ * worse: the raw printed string puts a Member State name like "Spain" in a
+ * dropdown of application section parts, and a fallback to a real section files
+ * the row under a part it was never in. Mirrors UNCLASSIFIED for category —
+ * the same admission, one field over.
+ */
+export const UNMAPPED_SECTION = 'UNMAPPED'
+
 /** Preventable share — the headline number on the analytics "preventability" panel. */
 export function preventableWeightShare(): number {
   const total = CATEGORIES.reduce((s, c) => s + c.weight, 0)

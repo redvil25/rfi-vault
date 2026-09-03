@@ -481,3 +481,33 @@ The filter flows through `search_considerations`, `hybrid_search` *and* `search_
 **What applying it caught.** The 0021 backfill built the code as `'NN' || replace(imp_name, '-', '')`, but `imp_name` already starts with NN — every backfilled row came out `NNNN1065-9412`, a shape the seed would never produce. All 130 rows were wrong and nothing in the build could have said so: the column is text, the filter still worked, and the dropdown still populated. It was found by counting the column after applying the migration rather than by trusting it. `0022` recomputes from `imp_name` (forward-only; 0021 was already applied). Verified after: 130 codes, 130 distinct, zero malformed against `^NN[0-9]{4}-[0-9]{4}$`, and every code agrees with its row's `imp_name`. Filtering by one code returns 11 considerations across exactly 1 trial.
 
 **Twelve trials have no protocol code, deliberately.** They are the rows the ingestion path creates when a filed document references an EU trial number the repository has not seen: no IMP, a placeholder title, and no protocol code stated anywhere in the document. Minting one would be inventing a regulatory identifier, which is the behaviour CLAUDE.md §2.2 exists to forbid. They are absent from the dropdown and from any protocol-code-filtered search, and the facet counts show it — `protocol_code` totals 940 rows where `category` totals 952, the same 12-row gap `imp_name` already had.
+
+---
+
+## ADR-032 — Unknown is not a finding, applied to analytics and ingestion
+**2026-09-03 · Accepted**
+
+**Context.** `npm run verify:dashboards` failed on one check: *every category resolved against the taxonomy — UNCLASSIFIED*. Six considerations from ingestion runs sat outside the taxonomy. Chasing it found two places where a refusal had been quietly converted into a plausible-looking answer, and the check itself was the third.
+
+**The analytics half.** `lib/analytics/query.ts` read `tier: taxonomy?.tier ?? 0`. That makes "this category is not in the taxonomy" indistinguishable from a real tier, and the volume then lands in the denominator of the preventable share — scoring an unclassifiable record as *not preventable*, a verdict nobody reached. The headline percentage in the deck was computed over it.
+
+`Preventability` now carries `classified` and `unclassified`, and both shares divide by `classified`. `total` still counts everything read, so the volume headline is unchanged. The analytics page states the denominator when anything is unclassified, and the preventability bar says how many records it excluded and why, rather than folding them into "judgement-based". Measured after: 75% preventable over 946 classified of 952, against 74% over 952 before — the number moved because the old one was slightly wrong, not because the definition was tuned.
+
+This is ADR-025's rule — *unknown is not a finding, and a missing signal is not a zero* — applied one subsystem over. It was stated there for risk scoring and not carried into analytics.
+
+**The ingestion half, which is where the bad data came from.** `lib/ingest/commit.ts` read `section: c.section ?? c.sectionRaw ?? 'Regulatory'`. `normaliseSection()` returns null for anything it cannot map and raises a warning; the commit path wrote the rejected raw string anyway. Member State names reached the column and appeared in the search **Document type** dropdown beside real application section parts:
+
+```
+Spain (2) · France (2) · Germany (2)
+```
+
+A pharma audience reading that sees a tool that does not know a Member State from an application section part — the exact vocabulary signal CLAUDE.md §6 says this audience scores on. The `'Regulatory'` fallback was worse than the raw string: it is the highest-volume section, so a misfiled row disappears into the largest bucket and skews the base rates `section_rfi_rates()` feeds back to the risk engine.
+
+`sectionForRow()` now takes only the mapped value and falls back to `UNMAPPED`, mirroring `UNCLASSIFIED` for category — `section` is NOT NULL, so something must be written, and the only honest something is a value that says so. `0023` repairs the rows already filed, expressed as "any section not in the taxonomy" rather than as a list of the three observed values.
+
+**The check was wrong too.** Asserting that *every* category resolves against the taxonomy makes an honest refusal look like a defect, and the cheapest way to make it pass is to stop the classifier refusing. It now asserts what should actually hold: unclassified volume is counted and excluded from the shares, and every *classified* category resolves. The verification line prints the denominator alongside the percentage.
+
+**Consequences.**
+- The deck's preventable share needs restating as "of classified considerations". The figure is 75%.
+- `section_part` is still guessed: `c.sectionPart ?? 'PART_I'` files a consideration under Part I when the parser could not tell. It is the same defect as the two fixed here and the field matters more than either — the Part I / Part II split is the business case. Fixing it needs an enum value or a refusal path, so it is recorded here rather than done quietly.
+- Six considerations remain `UNCLASSIFIED` and now six read `UNMAPPED`. They are the same six ingestion rows, they are visible in both dropdowns, and that is the intended end state: the system says what it could not determine instead of hiding it.

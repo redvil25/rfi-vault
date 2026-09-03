@@ -37,13 +37,25 @@ async function main() {
 
   check('the snapshot is not empty', !stats.empty, 'run `npm run seed` first')
   check('categories came back', stats.categories.length > 0)
+  // A category outside the taxonomy is expected — the classifier returns
+  // UNCLASSIFIED rather than guessing, and ingestion files that honestly. What
+  // must hold is that such volume is *reported* rather than folded into the
+  // shares as though it had been judged. Asserting "every category resolves"
+  // would make an honest refusal look like a defect and push the next person
+  // to make the classifier guess.
+  const unresolved = stats.categories.filter((c) => c.tier === null)
   check(
-    'every category resolved against the taxonomy',
-    stats.categories.every((c) => c.tier > 0),
-    stats.categories
-      .filter((c) => c.tier === 0)
-      .map((c) => c.category)
-      .join(', ') || undefined,
+    'unclassified volume is counted, not silently tiered',
+    unresolved.reduce((sum, c) => sum + c.occurrences, 0) === stats.preventability.unclassified,
+    unresolved.map((c) => `${c.category} (${c.occurrences})`).join(', ') || undefined,
+  )
+  check(
+    'the shares are taken over classified volume only',
+    stats.preventability.classified === stats.total - stats.preventability.unclassified,
+  )
+  check(
+    'every classified category resolved against the taxonomy',
+    stats.categories.every((c) => c.tier === null || c.tier > 0),
   )
   check(
     'occurrences are never fewer than distinct trials',
@@ -79,7 +91,12 @@ async function main() {
   )
   console.log(
     `  Preventable: ${Math.round(stats.preventability.share * 100)}% · ` +
-      `Tier 1–2: ${Math.round(stats.preventability.tier12Share * 100)}%\n`,
+      `Tier 1–2: ${Math.round(stats.preventability.tier12Share * 100)}% · ` +
+      `over ${stats.preventability.classified} classified of ${stats.total}` +
+      (stats.preventability.unclassified > 0
+        ? ` (${stats.preventability.unclassified} unclassified, excluded)`
+        : '') +
+      '\n',
   )
 
   // ----------------------------------------------------------------- Audit

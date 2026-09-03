@@ -18,7 +18,13 @@ import { log } from '@/lib/log'
 export interface CategoryStat {
   category: string
   label: string
-  tier: number
+  /**
+   * Taxonomy tier, or null when this category is not in the taxonomy at all.
+   *
+   * Null is not tier 0. A row the classifier could not place carries no claim
+   * about how preventable it is, and coercing it to a number invents one.
+   */
+  tier: number | null
   preventable: boolean
   owner: string | null
   occurrences: number
@@ -53,12 +59,26 @@ export interface Turnaround {
 }
 
 export interface Preventability {
+  /** Every consideration read, classified or not. The headline volume figure. */
   total: number
+  /**
+   * Volume the taxonomy can speak about — `total` minus `unclassified`.
+   *
+   * This, not `total`, is the denominator of both shares below. A consideration
+   * the classifier could not place says nothing about whether it was
+   * preventable, and putting it under `total` would quietly score it as "not
+   * preventable" — a claim we cannot support. Same principle as ADR-025:
+   * unknown is not a finding, and a missing signal is not a zero.
+   */
+  classified: number
+  /** Volume in categories that are not in the taxonomy — UNCLASSIFIED and anything else. */
+  unclassified: number
   preventable: number
-  /** Share of volume in categories the taxonomy marks preventable, 0–1. */
+  /** Share of *classified* volume in categories the taxonomy marks preventable, 0–1. */
   share: number
   /** Volume in Tier 1 and Tier 2 — administrative and document handling. */
   tier12: number
+  /** Share of *classified* volume, 0–1. */
   tier12Share: number
 }
 
@@ -124,7 +144,7 @@ export async function loadAnalytics(
     return {
       category: row.category,
       label: taxonomy?.label ?? row.category.replaceAll('_', ' ').toLowerCase(),
-      tier: taxonomy?.tier ?? 0,
+      tier: taxonomy?.tier ?? null,
       preventable: taxonomy?.preventable ?? false,
       owner: taxonomy?.owner ?? null,
       occurrences,
@@ -136,13 +156,8 @@ export async function loadAnalytics(
     }
   })
 
-  const total = categories.reduce((sum, c) => sum + c.occurrences, 0)
-  const preventable = categories
-    .filter((c) => c.preventable)
-    .reduce((sum, c) => sum + c.occurrences, 0)
-  const tier12 = categories
-    .filter((c) => c.tier === 1 || c.tier === 2)
-    .reduce((sum, c) => sum + c.occurrences, 0)
+  const preventability = summarisePreventability(categories)
+  const total = preventability.total
 
   const months: MonthStat[] = (monthsResult.data ?? []).map((row) => ({
     month: row.month,
@@ -174,14 +189,40 @@ export async function loadAnalytics(
     months,
     memberStates,
     turnaround,
-    preventability: {
-      total,
-      preventable,
-      share: total > 0 ? preventable / total : 0,
-      tier12,
-      tier12Share: total > 0 ? tier12 / total : 0,
-    },
+    preventability,
     total,
     empty: total === 0,
+  }
+}
+
+/**
+ * The preventability split, over classified volume only.
+ *
+ * Pure, and exported so the denominator rule is testable without a database —
+ * it is the arithmetic behind the headline percentage in the deck, and it was
+ * wrong in a way no query could reveal: `tier ?? 0` made an unclassifiable
+ * record indistinguishable from a real tier, and it landed in the denominator
+ * as though someone had judged it not preventable.
+ */
+export function summarisePreventability(categories: CategoryStat[]): Preventability {
+  const sum = (rows: CategoryStat[]) => rows.reduce((acc, c) => acc + c.occurrences, 0)
+
+  const total = sum(categories)
+  // Anything the taxonomy does not recognise: UNCLASSIFIED from the classifier
+  // refusing to guess, and any category an older corpus carries that has since
+  // been renamed. Both are "we cannot say", not "tier 0".
+  const unclassified = sum(categories.filter((c) => c.tier === null))
+  const classified = total - unclassified
+  const preventable = sum(categories.filter((c) => c.preventable))
+  const tier12 = sum(categories.filter((c) => c.tier === 1 || c.tier === 2))
+
+  return {
+    total,
+    classified,
+    unclassified,
+    preventable,
+    share: classified > 0 ? preventable / classified : 0,
+    tier12,
+    tier12Share: classified > 0 ? tier12 / classified : 0,
   }
 }
