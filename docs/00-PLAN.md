@@ -10,7 +10,7 @@ Five phases. Each has a hard exit criterion. **Do not start the next phase until
 
 Read this before the plan. Every item is avoidable.
 
-1. **They build a chatbot over PDFs.** Impressive in week one, indistinguishable from every other team by week four. Our differentiator is prevention (Feature 2) and precedent-grounding with refusal (Feature 3) — not chat.
+1. **They build a chatbot over PDFs.** Impressive in week one, indistinguishable from every other team by week four. Our differentiator is precedent-grounding with refusal (Feature 3) — not chat.
 2. **They demo on three documents.** Search over a tiny corpus is unconvincing. Ours has ~1,100 considerations with planted structure.
 3. **They have no numbers.** "It works well" loses to "Recall@5 of 0.87 against 0.61 for vector-only, on a held-out set."
 4. **They ignore the domain.** Using "amendment" instead of "substantial modification" tells a Novo Nordisk regulatory judge you did not do the reading.
@@ -31,8 +31,8 @@ Read this before the plan. Every item is avoidable.
 2. **Assign roles now** (details in `docs/07-TEAM-AND-RISKS.md`):
    - **Lead / Integrator** — owns the repo, the deploy, the demo, the final merge
    - **Retrieval Engineer** — embeddings, hybrid search, the eval harness
-   - **AI Engineer** — risk scoring, RAG drafting, the verifier
-   - **Frontend / UX** — all five screens, charts, the workflow UI
+   - **AI Engineer** — RAG drafting, the confidence gate, the verifier
+   - **Frontend / UX** — all four screens, charts, the workflow UI
    - **Domain / PM** — EU CTR research, taxonomy, synthetic corpus design, deck, report, mentor liaison
 3. **Set up the shared infrastructure** (Lead, ~2 hours). The scaffold, migrations, CI workflow, and taxonomy already exist in this repo — what remains is accounts and wiring:
    ```bash
@@ -67,7 +67,7 @@ This is not optional and it is not only the PM's job. **The whole team reads for
   npx supabase gen types typescript --project-id <id> > lib/db/types.ts
   ```
 - Supabase Auth wired; five demo accounts, one per role, seeded via script.
-- App shell: sidebar, five routes, all rendering an empty state.
+- App shell: sidebar, four routes, all rendering an empty state.
 - **Fresh-clone check.** A teammate on a different machine clones the repo and reaches a running app in under ninety seconds using only `README.md`. This is the Day 3 milestone that replaces "deploy to Vercel" (ADR-011) — it protects against the same failure mode, which is discovering on the final weekend that the app only runs on one person's laptop.
 - Add hosting selection to the Phase 3 agenda so it does not silently slip.
 
@@ -115,17 +115,11 @@ Highest-leverage hour of the entire month. See the Mentor Protocol below.
 
 ---
 
-## PHASE 2 — Features 2 and 3, the differentiators (Mon 24 Aug – Sun 30 Aug)
+## PHASE 2 — Feature 3, the differentiator (Mon 24 Aug – Sun 30 Aug)
 
-**Exit criterion:** upload a draft application, get per-section risk scores with evidence; paste an RFI, get a grounded draft with citations, deltas, and a working refusal path.
+**Exit criterion:** paste an RFI, get a grounded draft with citations, deltas, and a working refusal path.
 
-### Mon 24 – Tue 25 Aug — Risk scoring
-- Rule engine with 20–30 rules across sections and Member States; unit-tested individually.
-- Similarity and base-rate signals.
-- Blend, fit weights on the training split, band thresholds from the PR curve.
-- `/assess` UI: sections sorted by risk, colour-banded, expandable to show drivers, precedents, and `recommendedAction`.
-
-### Wed 26 – Thu 27 Aug — Draft generation
+### Mon 24 – Thu 27 Aug — Draft generation
 - Retrieval with the APPROVED + ACCEPTED preference.
 - `generateObject` with `DraftSchema`; streamed into the UI.
 - **The confidence gate and the refusal path — build this before polishing the happy path.**
@@ -133,8 +127,8 @@ Highest-leverage hour of the entire month. See the Mentor Protocol below.
 - Verifier pass; unsupported sentences visibly flagged.
 
 ### Fri 28 Aug — Mentor session + evaluation
-- Demo risk scoring and drafting. Ask directly: *"Would you trust this? What would stop you using it?"* Write the answer down verbatim — it is a quote for the deck and a roadmap item.
-- Run eval suites B and C. Commit the metrics.
+- Demo drafting. Ask directly: *"Would you trust this? What would stop you using it?"* Write the answer down verbatim — it is a quote for the deck and a roadmap item.
+- Run eval suite B. Commit the metrics.
 
 ### Sat 29 – Sun 30 Aug — Workflow and audit
 - Status machine: DRAFT → IN_REVIEW → APPROVED → SUBMITTED, with request-changes.
@@ -146,7 +140,7 @@ Highest-leverage hour of the entire month. See the Mentor Protocol below.
 
 ## PHASE 3 — Analytics, hardening, production readiness (Mon 31 Aug – Sun 6 Sep)
 
-**Exit criterion:** all five features work on a live hosted URL, the test suite is green in CI, and the demo video is recorded.
+**Exit criterion:** all four features work on a live hosted URL, the test suite is green in CI, and the demo video is recorded.
 
 ### Mon 31 Aug — Choose and set up hosting (ADR-011)
 Deferred from Day 1, and this is the deadline. Criteria: EU region, free tier, deploys from GitHub, Node 24, under thirty minutes of setup. Candidates: Render, Netlify, Cloudflare, Railway, self-hosted `next start`, or Vercel. Time-box to half a day; if it overruns, fall back to a local demo plus the recorded video and say so honestly.
@@ -159,7 +153,7 @@ Deferred from Day 1, and this is the deadline. Criteria: EU region, free tier, d
 - Make the ISTAT spike findable in the UI; it is a demo beat.
 
 ### Wed 2 – Thu 3 Sep — Hardening
-- Playwright E2E covering all five features, plus the RLS isolation test.
+- Playwright E2E covering all four features, plus the RLS isolation test.
 - Vitest coverage ≥ 70% on `lib/`.
 - Error boundaries, toasts, skeleton loaders, empty states everywhere.
 - Rate limiting on AI routes; file type and size validation on upload.
@@ -208,7 +202,7 @@ You get roughly four sessions with a Novo Nordisk GBS professional. Treat each o
 
 **Session 2 (21 Aug) — validate retrieval.** Let them use the search. Watch what they type — real user vocabulary is free product insight. Ask whether the taxonomy matches how they think.
 
-**Session 3 (28 Aug) — validate the differentiators.** Demo risk scoring and drafting. Ask what would stop them trusting it, and what integration it would need to be adopted.
+**Session 3 (28 Aug) — validate the differentiator.** Demo grounded drafting and its refusal path. Ask what would stop them trusting it, and what integration it would need to be adopted.
 
 **Session 4 (4 Sep) — dress rehearsal.** Full pitch. Ask them to be the judge. Ask directly what would make this a winner and what is missing.
 

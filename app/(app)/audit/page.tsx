@@ -10,7 +10,7 @@ type RawParams = Record<string, string | string[] | undefined>
 
 const ACTION_STYLE: Record<string, string> = {
   INGESTED: 'bg-ok-soft text-ok',
-  CORPUS_RESET: 'bg-warn-soft text-warn',
+  CORPUS_RESET: 'bg-background text-muted',
 }
 
 function formatWhen(iso: string) {

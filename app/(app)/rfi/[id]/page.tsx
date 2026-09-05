@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic'
 
 const STATUS_STYLE: Record<string, string> = {
   DRAFT: 'bg-background text-muted',
-  IN_REVIEW: 'bg-warn-soft text-warn',
+  IN_REVIEW: 'bg-background text-muted',
   APPROVED: 'bg-ok-soft text-ok',
   SUBMITTED: 'bg-accent-soft text-accent',
 }
@@ -129,7 +129,7 @@ export default async function RfiDetailPage({
             <span>Source file not available for this record.</span>
           )}
           {consideration.isSeed && (
-            <span className="rounded bg-warn-soft px-1.5 py-0.5 text-warn">
+            <span className="rounded border border-border px-1.5 py-0.5 text-muted">
               synthetic demonstration record
             </span>
           )}

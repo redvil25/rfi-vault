@@ -83,8 +83,8 @@ export default async function AnalyticsPage() {
           value={`${Math.round(preventability.share * 100)}%`}
           detail={
             preventability.unclassified > 0
-              ? `of ${preventability.classified.toLocaleString('en-GB')} classified, in categories a pre-submission check can catch`
-              : 'in categories a pre-submission check can catch'
+              ? `of ${preventability.classified.toLocaleString('en-GB')} classified, in categories a completeness check would catch`
+              : 'in categories a completeness check would catch'
           }
         />
         <Stat
@@ -191,8 +191,9 @@ export default async function AnalyticsPage() {
       <section className="mt-8">
         <h2 className="text-base font-semibold">How much of this was avoidable</h2>
         <p className="mt-1 mb-3 max-w-2xl text-sm text-muted">
-          Split by whether the taxonomy marks the category as catchable by a deterministic
-          pre-submission check. Tier 1 and Tier 2 — fees and document handling — account for{' '}
+          Split by whether the taxonomy marks the category as avoidable — an issue a
+          completeness check before submission would have caught. Tier 1 and Tier 2 — fees
+          and document handling — account for{' '}
           {Math.round(preventability.tier12Share * 100)}% of the classified volume on their own.
         </p>
         <div className="rounded-lg border border-border bg-surface p-4">

@@ -9,7 +9,7 @@ import { draftAction, transitionAction, type TransitionState } from './actions'
 
 const VERDICT_STYLE: Record<Verdict, string> = {
   SUPPORTED: '',
-  PARTIAL: 'underline decoration-warn decoration-wavy decoration-2 underline-offset-4',
+  PARTIAL: 'underline decoration-muted decoration-wavy decoration-2 underline-offset-4',
   UNSUPPORTED: 'underline decoration-risk decoration-wavy decoration-2 underline-offset-4',
 }
 
@@ -110,8 +110,8 @@ function Deltas({ deltas }: { deltas: StoredDraft['deltas'] }) {
       </h4>
       <ul className="mt-2 space-y-2">
         {deltas.map((d, i) => (
-          <li key={`${d.dimension}-${i}`} className="rounded-md bg-warn-soft/40 px-3 py-2 text-[13px]">
-            <span className="text-[11px] font-medium tracking-wide text-warn uppercase">
+          <li key={`${d.dimension}-${i}`} className="rounded-md border border-border px-3 py-2 text-[13px]">
+            <span className="text-[11px] font-medium tracking-wide text-muted uppercase">
               {d.dimension.replaceAll('_', ' ').toLowerCase()}
             </span>
             <p className="mt-1">
@@ -151,13 +151,6 @@ function DraftPanel({
           hint={`${outcome.citations.length} cited`}
         />
       </div>
-
-      {outcome.verifierUnavailable && (
-        <p className="mt-3 rounded-md bg-warn-soft px-3 py-2 text-sm text-warn">
-          This draft is <strong className="font-medium">ungraded</strong> —{' '}
-          {outcome.verifierUnavailable}. Read every sentence against the citations yourself.
-        </p>
-      )}
 
       <div className="mt-4">
         <GradedDraft draft={outcome.draft} verdicts={outcome.verdicts} />
@@ -224,7 +217,7 @@ function DraftPanel({
  */
 function RefusalPanel({ outcome }: { outcome: Extract<DraftOutcome, { refused: true }> }) {
   return (
-    <div className="mt-4 rounded-lg border border-warn/40 bg-warn-soft/40 p-4">
+    <div className="mt-4 rounded-lg border border-border p-4">
       <h3 className="text-sm font-semibold">No draft was written</h3>
       <p className="mt-2 text-[13px] leading-relaxed">{outcome.reason}</p>
 

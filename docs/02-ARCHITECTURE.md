@@ -11,22 +11,22 @@
 
 ```
                          ┌──────────────────────────────────────┐
-   Browser (Next.js)     │  Search  ·  Assess  ·  RFI Detail     │
+   Browser (Next.js)     │  Search  ·  Precheck  ·  RFI Detail   │
    RSC + shadcn/ui       │  Analytics  ·  Audit                  │
                          └──────────────┬───────────────────────┘
-                                        │  typed server actions / route handlers
+                                        │  typed server actions
                          ┌──────────────▼───────────────────────┐
                          │   Application layer (Next.js, Node 24)│
                          │   host-agnostic — see ADR-011         │
                          │                                       │
-   ┌─────────────────────┤  /api/ingest   /api/search            │
-   │                     │  /api/assess   /api/draft             │
+   ┌─────────────────────┤  server actions, one per screen       │
+   │                     │  no route handlers — see ADR-030      │
    │                     └───┬───────────────┬──────────────┬────┘
    │                         │               │              │
-   │  lib/ai                 │ lib/search    │ lib/risk     │ lib/audit
-   │  ├ embed()              │ ├ vectorTopK  │ ├ ruleEngine │ └ emit()
-   │  ├ extractFields()      │ ├ ftsTopK     │ ├ similarity │
-   │  ├ draftResponse()      │ ├ rrfFuse()   │ └ blendScore │
+   │  lib/ai                 │ lib/search    │ lib/precheck │ lib/audit
+   │  ├ embed()              │ ├ vectorTopK  │ ├ lint()     │ └ emit()
+   │  ├ extractFields()      │ ├ ftsTopK     │ ├ mine()     │
+   │  ├ draftResponse()      │ ├ rrfFuse()   │ └ precedent()│
    │  └ verifyGrounding()    │ └ llmRerank() │              │
    │                         │               │              │
    ▼                         ▼               ▼              ▼
@@ -88,21 +88,19 @@ query
 
 Keyword search is not decoration. Regulation codes, POL numbers, trial IDs and document references (`CT-2024-519530-24-00-SM06-001`) are exactly the strings embeddings handle worst. The ablation table in `docs/05-EVALUATION.md` is designed to prove this on our own data.
 
-### 4.3 Proactive risk scoring (Feature 2)
+### 4.3 Pre-submission check (Feature 2)
 
 ```
-Upload draft application (or paste section text)
-  → split into application sections (Part I / Part II taxonomy)
-  → for each section:
-       ├─ RULE ENGINE (deterministic checklist per section × member state)
-       ├─ SIMILARITY (nearest historical RFI-triggering sections)
-       └─ BASE RATE (historical RFI frequency for this section × MS × submission type)
-  → blend → risk score 0–100 → band Low / Medium / High
-  → attach evidence: top 3 precedent RFIs + the response that resolved each
-  → render per-section report, sorted by risk
+Paste one or more application sections, with the Member States and submission type
+  → LINT the text for absence, futurity and placeholders (deterministic, no model)
+  → MINE the corpus by (Member State × section × submission type)
+       each recurring theme carries hits, distinct trials, first_seen, last_seen
+  → DATE-SCOPE: a theme unseen for 12 months is greyed, reported SKIPPED, never fired
+  → ATTACH the verbatim past request and the accepted response that closed it
+  → render flags, sorted by severity, each with artefact + owner + copyable wording
 ```
 
-The output is **per-section, never a single overall score** — as promised in the solution overview. "Protocol Design: Low. IMPD Quality: High." A single number is not actionable; a per-section number tells a named person what to fix this afternoon.
+The output is **a list of flags, never a score**. "2 blockers, 3 likely triggers" is actionable; a 0-100 number implies a calibration this corpus cannot support (ADR-033). Every rule that ran — and every rule that did not — is listed with its reason, so a writer reads coverage instead of assuming it.
 
 ### 4.4 Draft response generation (Feature 3)
 
@@ -159,7 +157,6 @@ State this in the deck as **"validation-ready, not validated"** — the architec
 |---|---|
 | Search p50 / p95 | < 400 ms / < 900 ms |
 | Draft generation p95 | < 8 s, streamed so first token appears < 1.5 s |
-| Risk assessment, 10 sections | < 15 s |
 | Cost per search | < $0.001 |
 | Cost per draft | < $0.01 |
 | Corpus size at demo | 800–1,200 considerations |

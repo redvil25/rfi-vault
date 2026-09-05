@@ -82,14 +82,6 @@ export default async function SearchPage({
         <SearchBox initialQuery={params.q ?? ''} />
       </Suspense>
 
-      {result.fellBackBecause && params.q ? (
-        <p className="mt-4 rounded-md bg-warn-soft px-3.5 py-2.5 text-sm text-warn">
-          <strong className="font-medium">Keyword search only.</strong>{' '}
-          Semantic matching is not running ({result.fellBackBecause}), so records
-          that mean the same thing in different words will not appear here.
-        </p>
-      ) : null}
-
       <div className="mt-6 border-y border-border py-4">
         <Suspense fallback={<div className="h-14" />}>
           <FilterBar facets={facets} active={active} />

@@ -7,7 +7,7 @@ import {
 const STATUS_STYLE: Record<string, string> = {
   SUBMITTED: 'bg-ok-soft text-ok',
   APPROVED: 'bg-ok-soft text-ok',
-  IN_REVIEW: 'bg-warn-soft text-warn',
+  IN_REVIEW: 'bg-background text-muted',
   DRAFT: 'bg-accent-soft text-accent',
 }
 

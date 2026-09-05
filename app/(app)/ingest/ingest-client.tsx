@@ -20,7 +20,7 @@ const CATEGORY_OPTIONS = [...CATEGORIES]
 
 function confidenceTone(v: number) {
   if (v >= 0.8) return 'bg-ok-soft text-ok'
-  if (v >= 0.5) return 'bg-warn-soft text-warn'
+  if (v >= 0.5) return 'bg-background text-muted'
   return 'bg-risk-soft text-risk'
 }
 
@@ -402,7 +402,7 @@ export function IngestClient() {
       )}
 
       {rejected.length > 0 && docs.length === 0 && (
-        <ul className="rounded-md bg-warn-soft px-3.5 py-2.5 text-sm text-warn">
+        <ul className="rounded-md border border-border px-3.5 py-2.5 text-sm text-muted">
           {rejected.map((r) => (
             <li key={r.fileName}>
               <span className="font-medium">{r.fileName}</span> — {r.error}
@@ -585,7 +585,7 @@ function ReviewFlow({
         </div>
 
         {rejected.length > 0 && (
-          <div className="rounded-md bg-warn-soft px-3.5 py-2.5 text-sm text-warn">
+          <div className="rounded-md border border-border px-3.5 py-2.5 text-sm text-muted">
             <p className="font-medium">
               {rejected.length} file{rejected.length === 1 ? '' : 's'} could not be read and{' '}
               {rejected.length === 1 ? 'is' : 'are'} not included below:
@@ -704,7 +704,7 @@ function DocumentReview({
       )}
 
       {parsed.warnings.length > 0 && (
-        <ul className="mt-4 space-y-1 rounded-md bg-warn-soft px-3.5 py-2.5 text-sm text-warn">
+        <ul className="mt-4 space-y-1 rounded-md border border-border px-3.5 py-2.5 text-sm text-muted">
           {parsed.warnings.map((w) => (
             <li key={w}>{w}</li>
           ))}
@@ -770,7 +770,7 @@ function DocumentReview({
               )}
 
               {c.warnings.length > 0 && (
-                <ul className="mt-2.5 space-y-0.5 rounded bg-warn-soft px-3 py-2 text-xs text-warn">
+                <ul className="mt-2.5 space-y-0.5 rounded border border-border px-3 py-2 text-xs text-muted">
                   {c.warnings.map((w) => (
                     <li key={w}>{w}</li>
                   ))}

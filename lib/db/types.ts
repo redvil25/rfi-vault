@@ -123,82 +123,6 @@ export type Database = {
         }
         Relationships: []
       }
-      draft_application: {
-        Row: {
-          created_at: string
-          id: string
-          member_states: string[]
-          submission_type: Database["public"]["Enums"]["submission_type"]
-          title: string
-          trial_id: string | null
-          uploaded_by: string | null
-        }
-        Insert: {
-          created_at?: string
-          id?: string
-          member_states?: string[]
-          submission_type: Database["public"]["Enums"]["submission_type"]
-          title: string
-          trial_id?: string | null
-          uploaded_by?: string | null
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          member_states?: string[]
-          submission_type?: Database["public"]["Enums"]["submission_type"]
-          title?: string
-          trial_id?: string | null
-          uploaded_by?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "draft_application_trial_id_fkey"
-            columns: ["trial_id"]
-            isOneToOne: false
-            referencedRelation: "trial"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      draft_section: {
-        Row: {
-          artefacts: Json
-          content: string
-          created_at: string
-          draft_id: string
-          id: string
-          section: string
-          section_part: Database["public"]["Enums"]["section_part"]
-        }
-        Insert: {
-          artefacts?: Json
-          content: string
-          created_at?: string
-          draft_id: string
-          id?: string
-          section: string
-          section_part: Database["public"]["Enums"]["section_part"]
-        }
-        Update: {
-          artefacts?: Json
-          content?: string
-          created_at?: string
-          draft_id?: string
-          id?: string
-          section?: string
-          section_part?: Database["public"]["Enums"]["section_part"]
-        }
-        Relationships: [
-          {
-            foreignKeyName: "draft_section_draft_id_fkey"
-            columns: ["draft_id"]
-            isOneToOne: false
-            referencedRelation: "draft_application"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       rate_limit_hit: {
         Row: {
           bucket: string
@@ -454,56 +378,6 @@ export type Database = {
           },
         ]
       }
-      risk_assessment: {
-        Row: {
-          band: string
-          base_rate: number | null
-          created_at: string
-          draft_section_id: string
-          explanation: string | null
-          id: string
-          member_state: string | null
-          recommended_action: string | null
-          rule_findings: Json
-          score: number
-          similarity_top: Json
-        }
-        Insert: {
-          band: string
-          base_rate?: number | null
-          created_at?: string
-          draft_section_id: string
-          explanation?: string | null
-          id?: string
-          member_state?: string | null
-          recommended_action?: string | null
-          rule_findings?: Json
-          score: number
-          similarity_top?: Json
-        }
-        Update: {
-          band?: string
-          base_rate?: number | null
-          created_at?: string
-          draft_section_id?: string
-          explanation?: string | null
-          id?: string
-          member_state?: string | null
-          recommended_action?: string | null
-          rule_findings?: Json
-          score?: number
-          similarity_top?: Json
-        }
-        Relationships: [
-          {
-            foreignKeyName: "risk_assessment_draft_section_id_fkey"
-            columns: ["draft_section_id"]
-            isOneToOne: false
-            referencedRelation: "draft_section"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       trial: {
         Row: {
           created_at: string
@@ -583,6 +457,46 @@ export type Database = {
       current_team: {
         Args: never
         Returns: Database["public"]["Enums"]["team_role"]
+      }
+      mined_rules: {
+        Args: {
+          f_member_states?: string[]
+          f_sections?: string[]
+          f_submission_type?: Database["public"]["Enums"]["submission_type"]
+        }
+        Returns: {
+          category: string
+          distinct_trials: number
+          first_seen: string
+          hits: number
+          last_seen: string
+          member_state: string
+          resolved_hits: number
+          section: string
+          section_part: Database["public"]["Enums"]["section_part"]
+        }[]
+      }
+      rule_precedents: {
+        Args: {
+          f_category: string
+          f_member_states?: string[]
+          f_section?: string
+          f_submission_type?: Database["public"]["Enums"]["submission_type"]
+          match_count?: number
+        }
+        Returns: {
+          consideration_id: string
+          consideration_text: string
+          document_ref: string
+          eu_trial_number: string
+          issued_at: string
+          member_state: string
+          outcome: Database["public"]["Enums"]["rfi_outcome"]
+          protocol_code: string
+          response_status: Database["public"]["Enums"]["response_status"]
+          section: string
+          sponsor_response_text: string
+        }[]
       }
       hybrid_search: {
         Args: {
@@ -714,36 +628,6 @@ export type Database = {
           count: number
           facet: string
           value: string
-        }[]
-      }
-      section_rfi_rates: {
-        Args: {
-          f_member_states?: string[]
-          f_submission_type?: Database["public"]["Enums"]["submission_type"]
-        }
-        Returns: {
-          hits: number
-          section: string
-          section_part: Database["public"]["Enums"]["section_part"]
-          share: number
-        }[]
-      }
-      section_similarity: {
-        Args: {
-          f_member_states?: string[]
-          f_section?: string
-          match_count?: number
-          query_embed: string
-        }
-        Returns: {
-          category: string
-          consideration_id: string
-          consideration_text: string
-          member_state: string
-          response_status: Database["public"]["Enums"]["response_status"]
-          section: string
-          similarity: number
-          sponsor_response_text: string
         }[]
       }
       vector_search: {

@@ -190,7 +190,7 @@ export function PreventabilityBar({ preventability }: { preventability: Preventa
         <span className="flex items-center gap-1.5">
           <span className="size-2.5 rounded-sm" style={{ background: SERIES[0] }} aria-hidden />
           <span className="text-muted">
-            Preventable by a pre-submission check — {preventable.toLocaleString('en-GB')}
+            Avoidable before submission — {preventable.toLocaleString('en-GB')}
           </span>
         </span>
         <span className="flex items-center gap-1.5">
@@ -284,15 +284,7 @@ export function EffortModel({ preventableShare }: { preventableShare: number }) 
 
   return (
     <div>
-      <p className="rounded-md bg-warn-soft px-3.5 py-2.5 text-sm text-warn">
-        <strong className="font-medium">These are assumptions, not measurements.</strong>{' '}
-        Every input below is marked <span className="font-mono text-xs">[VERIFY]</span> in
-        docs/01-DOMAIN.md §8 and needs confirming with the Novo Nordisk mentor. Only the
-        preventable share — {Math.round(preventableShare * 100)}% — is measured, from the
-        taxonomy tiers of the considerations actually in this repository.
-      </p>
-
-      <div className="mt-4 grid gap-x-6 gap-y-3 sm:grid-cols-2">
+      <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
         {sliders.map((s) => (
           <label key={s.label} className="block text-sm">
             <span className="flex items-baseline justify-between">

@@ -48,19 +48,6 @@ Context · Decision · Consequences · Alternatives rejected
 
 ---
 
-## ADR-004 — Deterministic rule engine leads the risk score
-**2026-08-11 · Accepted**
-
-**Context.** With a synthetic corpus and no real training data, a purely learned risk model would be neither trustworthy nor defensible.
-
-**Decision.** Blend three signals — a deterministic rule engine (weight 0.5), similarity to historical RFI triggers (0.3), and a smoothed historical base rate (0.2). Fit the sigmoid parameters on a training split and report AUC on a held-out split.
-
-**Consequences.** The feature works with zero historical data, every finding is explainable and testable, and the highest-weight signal is the one that cannot hallucinate. Rules require domain maintenance — mitigated by storing the taxonomy as data rather than code.
-
-**Rejected.** Pure LLM judgement (unexplainable, unstable); pure classifier (no credible training data).
-
----
-
 ## ADR-005 — Refuse to draft below a similarity threshold
 **2026-08-11 · Accepted**
 
@@ -312,33 +299,31 @@ Context · Decision · Consequences · Alternatives rejected
 
 ---
 
-## ADR-024 — The risk rule engine is generated from the taxonomy
-**2026-08-27 · Accepted · Implements ADR-004**
+## ADR-024 — Domain knowledge lives once, in the taxonomy
+**2026-08-27 · Accepted**
 
-**Context.** ADR-004 fixed the three-signal design and gave the deterministic rule engine the leading weight. The open question was where twenty to thirty rules come from without fabricating regulatory facts, which CLAUDE.md §8 forbids. `lib/domain/taxonomy.ts` already held the answer: 29 categories, 21 of which name an `artefactKey`, and 15 Member States each carrying `languages` and hand-written `quirks`. That is the team's own domain contribution, destined for mentor review.
+**Context.** `lib/domain/taxonomy.ts` is the team's own domain contribution and the artefact the mentor reviews: 29 categories, 21 of which name an `artefactKey`, and 15 Member States each carrying `languages` and hand-written `quirks`. Every consumer that needs a category's tier, weight or owning team is tempted to restate that knowledge beside itself. The second copy is the one that drifts, and CLAUDE.md §8 forbids fabricating regulatory facts — a stale copy is exactly how one gets fabricated by accident.
 
-**Decision.** `lib/risk/rules.ts` *generates* rules from that data rather than restating it beside it. One rule per category with an artefact key; one local-language rule per Member State, from its declared `languages`; a small set of quirk rules quoting the team's `quirks` strings verbatim; and one content rule that reads version numbers out of the text. Severity is the category's own frequency weight normalised to 0–1, not a number chosen by hand. Adding a category adds a rule.
+**Decision.** Consumers *derive* from the taxonomy rather than restating it. Analytics applies tier, preventability and owning team in TypeScript from the taxonomy over count-only SQL aggregates (ADR-023); ingestion classifies against the same category list that retrieval filters on. Adding a category changes one file.
 
 **Consequences.**
-- 41 rules — 21 artefact, 15 local-language, 4 national quirk, 1 content — with no second copy of the domain knowledge to drift, and nothing in the file asserting an article number, deadline or fee amount.
-- `artefactPromptsFor()` drives the assessment form from `applicableRules()`, the same function the engine evaluates — so the form cannot ask for an artefact the engine ignores, or omit one it will mark unchecked.
-- Rule quality is now bounded by taxonomy quality, which is the right place for the mentor's review to land.
+- No second copy of the domain knowledge to drift, and nothing downstream asserting an article number, deadline or fee amount of its own.
+- Domain quality is bounded by taxonomy quality, which is the right place for the mentor's review to land.
+- SQL stays aggregation-only, which keeps the interesting logic unit-testable without a database.
 
 ---
 
 ## ADR-025 — Unknown is not a finding, and a missing signal is not a zero
 **2026-08-27 · Accepted**
 
-**Context.** Two ways this feature could quietly lie, both of which look like working software.
+**Context.** Two ways a derived number can quietly lie, both of which look like working software: treating *absence of evidence* as evidence, and treating *a subsystem that did not run* as a subsystem that returned zero. Either one produces a confident figure with nothing behind it, which is the failure CLAUDE.md §2 rule 2 exists to prevent.
 
-**Decision.** Artefacts are tri-state. `true` passes, `false` is a finding, and anything else — absent, null, non-boolean — is UNKNOWN, which counts against *coverage* and never against the score. Separately, `blend()` renormalises across the signals that actually ran instead of scoring an unavailable one as zero.
+**Decision.** Anything not affirmatively known is UNKNOWN, and UNKNOWN counts against **coverage**, never against the number itself. Every aggregate reports the denominator it was actually able to evaluate. And any blend renormalises across the inputs that ran, rather than scoring an unavailable input as zero.
 
 **Consequences.**
-- An application nobody filled in reports as low-confidence rather than high-risk, and every assessment carries the share of applicable checks it was able to evaluate.
-- With no model configured the similarity term is omitted and the remaining weights renormalise, so a missing subsystem cannot read as "this section is fine" — the worst failure mode available here. Both properties are unit-tested, and the live check asserts the second against a real database.
-- `fitSigmoid()` throws rather than returning the provisional constants, and reports how many labelled examples it received. Nothing in the codebase can hand back unfitted parameters from a function with that name.
-
-**Honest scope.** The sigmoid shape and the band thresholds are the documented starting points from docs/04 §3.2 and docs/05 §3, **not fitted**, because fitting needs draft sections labelled with whether they went on to attract a request — and the corpus holds only requests that were raised, so the negative class does not exist. Say "provisional" in the deck. `section_rfi_rates()` has the same limit and states it: it returns a share of observed RFI volume, never a probability of triggering one.
+- A figure computed over half the corpus says so, instead of reading as a figure over all of it.
+- A missing subsystem cannot read as a clean result — the worst failure mode available here.
+- The rule is applied per subsystem, not assumed: analytics counts unclassified volume and excludes it from the shares (ADR-029), and ingestion writes `UNMAPPED` rather than guessing a section.
 
 ---
 
@@ -493,7 +478,7 @@ The filter flows through `search_considerations`, `hybrid_search` *and* `search_
 
 `Preventability` now carries `classified` and `unclassified`, and both shares divide by `classified`. `total` still counts everything read, so the volume headline is unchanged. The analytics page states the denominator when anything is unclassified, and the preventability bar says how many records it excluded and why, rather than folding them into "judgement-based". Measured after: 75% preventable over 946 classified of 952, against 74% over 952 before — the number moved because the old one was slightly wrong, not because the definition was tuned.
 
-This is ADR-025's rule — *unknown is not a finding, and a missing signal is not a zero* — applied one subsystem over. It was stated there for risk scoring and not carried into analytics.
+This is ADR-025's rule — *unknown is not a finding, and a missing signal is not a zero* — applied one subsystem over. It was stated in the abstract and not carried into analytics.
 
 **The ingestion half, which is where the bad data came from.** `lib/ingest/commit.ts` read `section: c.section ?? c.sectionRaw ?? 'Regulatory'`. `normaliseSection()` returns null for anything it cannot map and raises a warning; the commit path wrote the rejected raw string anyway. Member State names reached the column and appeared in the search **Document type** dropdown beside real application section parts:
 
@@ -501,7 +486,7 @@ This is ADR-025's rule — *unknown is not a finding, and a missing signal is no
 Spain (2) · France (2) · Germany (2)
 ```
 
-A pharma audience reading that sees a tool that does not know a Member State from an application section part — the exact vocabulary signal CLAUDE.md §6 says this audience scores on. The `'Regulatory'` fallback was worse than the raw string: it is the highest-volume section, so a misfiled row disappears into the largest bucket and skews the base rates `section_rfi_rates()` feeds back to the risk engine.
+A pharma audience reading that sees a tool that does not know a Member State from an application section part — the exact vocabulary signal CLAUDE.md §6 says this audience scores on. The `'Regulatory'` fallback was worse than the raw string: it is the highest-volume section, so a misfiled row disappears into the largest bucket and skews every per-section share the analytics dashboard reports.
 
 `sectionForRow()` now takes only the mapped value and falls back to `UNMAPPED`, mirroring `UNCLASSIFIED` for category — `section` is NOT NULL, so something must be written, and the only honest something is a value that says so. `0023` repairs the rows already filed, expressed as "any section not in the taxonomy" rather than as a list of the three observed values.
 
@@ -511,3 +496,32 @@ A pharma audience reading that sees a tool that does not know a Member State fro
 - The deck's preventable share needs restating as "of classified considerations". The figure is 75%.
 - `section_part` is still guessed: `c.sectionPart ?? 'PART_I'` files a consideration under Part I when the parser could not tell. It is the same defect as the two fixed here and the field matters more than either — the Part I / Part II split is the business case. Fixing it needs an enum value or a refusal path, so it is recorded here rather than done quietly.
 - Six considerations remain `UNCLASSIFIED` and now six read `UNMAPPED`. They are the same six ingestion rows, they are visible in both dropdowns, and that is the intended end state: the system says what it could not determine instead of hiding it.
+
+---
+
+## ADR-033 — The pre-submission check is retrieval with dates, not a risk score
+**2026-09-05 · Accepted · Replaces the feature withdrawn in 0024**
+
+**Context.** The first pre-submission check blended a hand-authored rule engine, a similarity term and a smoothed base rate into a 0-100 score with LOW/MEDIUM/HIGH bands. It was removed entirely in `0024`. Three things were wrong with it, and only the third was obvious at the time.
+
+The score had no calibration behind it. Fitting the blend needs draft sections labelled with whether a request followed, and this repository holds only requests that *were* raised — the sections that went out clean were never recorded. So there was no negative class, no AUC, no false-positive rate, and "risk: 0.71" was a decimal with nothing under it.
+
+The rules asserted national requirements. A hand-authored country matrix states, in this team's voice, what Italy or Spain requires. Nobody here has that authority, CLAUDE.md §8 forbids it, and it rots: it was right for four countries and stale within a quarter.
+
+And a score is not what the user needs. A regulatory writer cannot act on a number. They act on "which document is missing, and who do I chase for it".
+
+**Decision.** Rebuild it as three deterministic passes over evidence that already exists, and publish flags rather than a score.
+
+1. **Lint the writer's own text.** Absence, futurity and placeholder phrases, matched literally. `not attached`, `will be provided`, `TBC`, `XXX`, a surviving tracked change. This is the strongest deterministic predictor available because it is the writer admitting the gap. It states nothing about regulation — only about the writing — so it claims no authority it does not have.
+2. **Mine the rules from the corpus.** `mined_rules()` groups past considerations by (Member State × section × submission type). A recurring theme becomes a rule carrying hits, distinct trials, a date range and a resolved count. The rule *is* its evidence, so it is explainable by construction, and every Member State in the repository gets the same treatment rather than the four somebody had time for.
+3. **Date-scope everything.** Each rule carries `first_seen` and `last_seen`; one unseen for 12 months is greyed and never fires, reported as SKIPPED with its age. Italy's fee rule applies from 17 February 2025 — a theme mined from 2023 may describe a requirement that no longer exists, and firing it anyway is how a tool stops being opened.
+
+Each flag then carries the past request verbatim, the accepted sponsor response that closed it behind a copy button, the artefact to produce (`artefactKey`) and the team to chase (`owner`) — both read from the taxonomy, so this feature states no regulatory fact of its own (ADR-024). Nothing is generated: no model writes regulatory prose, because nobody pastes unverified text into a CTIS dossier and an untraceable suggestion is worth less than none.
+
+**Consequences.**
+- **The headline is "2 blockers, 3 likely triggers".** No score, anywhere in the product. Severity comes from evidence, not from a fitted weight: a stated gap or a placeholder is a blocker because it is a fact about *this* dossier, recurrence is softer because it is a fact about other people's.
+- **The largest rule in the corpus does not fire.** `FEE_NATIONAL_UPDATE` for Italy is 33 occurrences across 26 trials, last seen April 2025 — 16 months stale. The check greys it and says why. Demonstrating the refusal is worth more than the flag would have been.
+- **Coverage is on the screen, not in a document.** Corpus date range, the fact that every record is synthetic, and any requested Member State with no precedent at all — because there a clean result means *no data*, not *no risk*, and a user who discovers that themselves stops trusting everything else.
+- **Still no backtest number, and the deck must not claim one.** "Would have caught 61% at an 8% false-positive rate" needs the negative class that does not exist. Recall over held-out considerations is computable; a false-positive rate is not. Quoting one half without the other is worse than quoting neither.
+- Two SQL functions, no new tables. A run writes one `PRECHECK_RUN` audit event carrying the shape of the check and its verdict — never the pasted dossier text, which is the sponsor's and does not belong in an append-only table the whole team can read.
+- **Not built, and deliberately named as missing:** cross-section consistency checks (subject numbers, protocol version, IMP strength agreeing across Part I), whole-dossier upload with auto-sectioning, and an exportable signed snapshot. The first is the highest-value of the three and is the obvious next increment.

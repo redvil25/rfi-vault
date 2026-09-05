@@ -95,40 +95,33 @@ create index rfi_cons_category  on rfi_consideration (category);
 create index rfi_cons_trgm      on rfi_consideration using gin (consideration_text gin_trgm_ops);
 ```
 
-### 0004_draft_application.sql — input for Feature 2
+### 0025_precheck_mining.sql — the pre-submission check
+
+No new tables. The check reads the corpus that already exists and writes nothing but an
+audit event, because a run is an observation about a dossier we do not store, not a
+record in its own right.
 
 ```sql
-create table draft_application (
-  id              uuid primary key default gen_random_uuid(),
-  title           text not null,
-  submission_type submission_type not null,
-  member_states   text[] not null default '{}',
-  uploaded_by     uuid references auth.users(id),
-  created_at      timestamptz not null default now()
-);
+-- Recurrence by (Member State x section x submission type), with the dates that
+-- make a rule explainable and the staleness that stops a dead one firing.
+mined_rules(f_member_states text[], f_submission_type submission_type, f_sections text[])
+  -> category, section, section_part, member_state,
+     hits, distinct_trials, resolved_hits, first_seen, last_seen
 
-create table draft_section (
-  id          uuid primary key default gen_random_uuid(),
-  draft_id    uuid not null references draft_application(id) on delete cascade,
-  section_part section_part not null,
-  section     text not null,
-  content     text not null,
-  artefacts   jsonb not null default '{}'   -- {"fee_proof": true, "icf_local_lang": false, ...}
-);
-
-create table risk_assessment (
-  id                uuid primary key default gen_random_uuid(),
-  draft_section_id  uuid not null references draft_section(id) on delete cascade,
-  member_state      text,
-  score             numeric(5,2) not null,          -- 0..100
-  band              text not null check (band in ('LOW','MEDIUM','HIGH')),
-  rule_findings     jsonb not null default '[]',    -- deterministic checklist failures
-  similarity_top    jsonb not null default '[]',    -- [{consideration_id, similarity, category}]
-  base_rate         numeric(5,4),
-  explanation       text,
-  created_at        timestamptz not null default now()
-);
+-- The verbatim evidence behind one mined rule: what was asked, when, against which
+-- trial, and the sponsor response that closed it. APPROVED/SUBMITTED + ACCEPTED only.
+rule_precedents(f_category text, f_section text, f_member_states text[],
+                f_submission_type submission_type, match_count int)
+  -> consideration_id, consideration_text, sponsor_response_text, member_state,
+     section, issued_at, document_ref, eu_trial_number, protocol_code, ...
 ```
+
+Both are SECURITY INVOKER, so a user mines rules only out of the precedent their own RLS
+policies let them read. Two teams can legitimately get different counts.
+
+The pasted dossier text is never persisted. The audit event records the shape of the run
+— submission type, Member States, sections, flag counts, rules skipped — and not the
+sponsor's words, which have no business in an append-only table the whole team can read.
 
 ### 0005_workflow_audit.sql
 
@@ -145,7 +138,7 @@ create table audit_events (
   occurred_at   timestamptz not null default now(),
   actor_id      uuid references auth.users(id),
   actor_team    team_role,
-  entity_type   text not null,      -- 'rfi_consideration' | 'draft_application' | ...
+  entity_type   text not null,      -- 'rfi_document' | 'rfi_consideration' | ...
   entity_id     uuid not null,
   action        text not null,      -- INGESTED | DRAFTED | SUBMITTED_FOR_REVIEW | APPROVED | ...
   from_status   text,
@@ -190,9 +183,6 @@ create table ai_calls (
 
 ```sql
 alter table rfi_consideration enable row level security;
-alter table draft_application enable row level security;
-alter table draft_section     enable row level security;
-alter table risk_assessment   enable row level security;
 alter table audit_events      enable row level security;
 
 -- Approved and submitted knowledge is shared organisation-wide: that is the product.
@@ -311,9 +301,8 @@ Generate these on purpose, and record the ground truth in `scripts/seed/ground-t
 1. **Near-duplicate clusters.** 6–10 groups of 5–15 considerations that are the same underlying issue in different words, trials, and Member States. This is what makes the "we solved this eleven times already" moment land.
 2. **Semantic-only pairs.** ~50 query/document pairs that share meaning but almost no vocabulary ("payment evidence for the updated national tariff" ↔ "proof of payment of the additional ISTAT amount"). These prove vector search earns its place.
 3. **Keyword-only pairs.** ~50 pairs where the discriminating token is an identifier or code (`CT-2024-519530-24-00-SM06-001`, a POL number, `Annex 15`). These prove keyword search earns its place — embeddings reliably fail here.
-4. **Risk-model labels.** Draft sections labelled with whether an RFI followed. Hold out 20% for evaluation. Include *hard negatives*: sections that look risky but were fine.
-5. **A no-precedent RFI.** At least one genuinely novel RFI with no close match, used to demo the refusal path in Feature 3.
-6. **A gold retrieval set.** 50 queries with human-marked relevant considerations, used for Recall@5, MRR@10, nDCG@10.
+4. **A no-precedent RFI.** At least one genuinely novel RFI with no close match, used to demo the refusal path in Feature 3.
+5. **A gold retrieval set.** 50 queries with human-marked relevant considerations, used for Recall@5, MRR@10, nDCG@10.
 
 ### 2.3 Generation method
 
@@ -322,7 +311,7 @@ scripts/seed/
   taxonomy.ts        categories, sections, member states, national quirks
   templates.ts       ~40 hand-written skeleton considerations per Tier
   generate.ts        Gemini expands templates into varied, realistic text
-  ground-truth.json  planted clusters, gold queries, risk labels
+  ground-truth.json  planted clusters, gold queries
   run.ts             deterministic driver (seed = 42) → writes JSON + inserts
 ```
 

@@ -14,7 +14,7 @@ const TEAM_LABELS: Record<string, string> = {
 const NAV = [
   { href: '/search', label: 'Search', ready: true },
   { href: '/ingest', label: 'File a document', ready: true },
-  { href: '/assess', label: 'Pre-submission check', ready: true },
+  { href: '/precheck', label: 'Pre-submission check', ready: true },
   { href: '/analytics', label: 'Analytics', ready: true },
   { href: '/audit', label: 'Audit trail', ready: true },
 ]
@@ -80,9 +80,6 @@ export default async function AppLayout({
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="border-b border-border bg-warn-soft px-6 py-1.5 text-center text-[11px] text-warn">
-          Synthetic demonstration corpus — no real trial, sponsor, or patient data
-        </div>
         <main className="min-w-0 flex-1">{children}</main>
       </div>
     </div>

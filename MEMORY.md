@@ -100,7 +100,6 @@ Things we expect to learn and should record when we do:
 - The RRF `k` value that maximises nDCG@10 on our corpus
 - Whether LLM reranking earns its latency
 - Calibrated similarity thresholds for the confidence bands and for the refusal gate
-- Fitted risk-blend weights and the held-out AUC
 - Measured cost per search and per draft from `ai_calls`
 
 ## 5. Dead ends
@@ -131,7 +130,6 @@ Things we expect to learn and should record when we do:
 - Postgres + pgvector, not a dedicated vector database (ADR-001)
 - Hybrid retrieval with RRF, k=60 (ADR-002)
 - Two embeddings per consideration: question-space and answer-space (ADR-003)
-- Deterministic rule engine leads the risk score at weight 0.5 (ADR-004)
 - The system refuses to draft below a similarity threshold (ADR-005)
 - An independent, stronger model verifies groundedness (ADR-006)
 - Audit trail is append-only, enforced by database trigger (ADR-007)

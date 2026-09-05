@@ -75,7 +75,7 @@ export type CommitResult =
  * and appeared in the search "Document type" dropdown beside real application
  * section parts. The 'Regulatory' fallback was worse still: it is the
  * highest-volume section, so a misfiled row vanishes into the biggest bucket
- * and skews the base rates the risk engine reads back out.
+ * and skews every per-section share the analytics dashboard reports.
  *
  * `section` is NOT NULL, so something must be written; the only honest
  * something is a value that says so.

@@ -3,8 +3,8 @@ import { z } from 'zod'
 /**
  * Fail fast and loudly on misconfiguration rather than at the first query.
  *
- * AI keys are deliberately optional: the manual search path, the deterministic
- * rule engine, and the whole repository must work with no model configured.
+ * AI keys are deliberately optional: the manual search path, rule-based
+ * classification, and the whole repository must work with no model configured.
  * `aiEnabled` is the single switch the rest of the codebase reads.
  */
 

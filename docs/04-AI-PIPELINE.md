@@ -47,84 +47,65 @@ Calibrate the thresholds against the gold set rather than guessing, and state in
 
 For the top 20 fused results, one `gemini-2.5-flash` call scores relevance to the query and returns a reordering with a one-line justification per result. Adds roughly 600–900 ms. Measure the nDCG@10 gain in `npm run eval`; **keep it only if it wins on the numbers, and report the measured delta either way.** Reporting a rejected optimisation with its number is a stronger technical signal than silently shipping it.
 
-## 3. Feature 2 — Proactive risk scoring
+## 3. Feature 2 — The pre-submission check
 
-The highest-value feature and the biggest differentiator. Every other team will build retrieval; this one predicts.
+Retrieval, not prediction. The first version of this feature blended a hand-authored rule engine with a similarity term and a base rate and published a 0-100 score; it was withdrawn (ADR-033). The corpus holds only requests that *were* raised, so there is no negative class to fit against, no AUC to report and no false-positive rate to quote. A number without those is decoration.
 
-### 3.1 Three independent signals
+What the corpus does support is a count, a date range, and the verbatim text behind both.
 
-**(a) Rule engine — deterministic, `lib/risk/rules.ts`**
+### 3.1 Signal (a) — absence and futurity, in the writer's own words
 
-A checklist per `(section × member_state × submission_type)`, derived from the taxonomy in `docs/01-DOMAIN.md`. Examples:
+`lib/precheck/lint.ts`. Pure phrase matching, no model, no network.
 
-```ts
-{ id: 'IT_FEE_PROOF',        applies: { ms: 'IT' },
-  check: s => s.artefacts.fee_proof === true,
-  weight: 0.9,
-  message: 'Italy requires proof of payment including the ISTAT-updated amount for submissions from 17 Feb 2025.' },
+The strongest deterministic predictor of a request for information is the writer admitting the gap themselves. *"The insurance certificate has not yet been returned and is not attached"* needs no inference — it is a sentence saying the dossier is incomplete, written by the person who knows it is.
 
-{ id: 'ICF_LOCAL_LANGUAGE',  applies: { section: 'ICF' },
-  check: s => s.artefacts.local_language_versions?.length > 0,
-  weight: 0.85,
-  message: 'No local-language ICF detected for the selected Member States.' },
+Three families:
 
-{ id: 'PROTOCOL_VERSION_CONSISTENCY', applies: { part: 'PART_I' },
-  check: s => versionsAgree(s.content),
-  weight: 0.7,
-  message: 'Protocol version referenced in the cover letter does not match the uploaded protocol.' },
-```
+| Family | Examples | Severity |
+|---|---|---|
+| ABSENCE | not attached, missing, pending, awaiting, under negotiation, in preparation | Blocker |
+| FUTURITY | will be provided, to be submitted, TBC, in due course, once available | Likely trigger |
+| PLACEHOLDER | `XXX`, `[insert …]`, `{{field}}`, `______`, unresolved tracked changes, leftover review comments | Blocker |
 
-Deterministic, explainable, testable, and functional with zero historical data. This is what makes the feature *feasible* — it does not depend on the model being right.
+Negation reaches its participle through a variable middle — "not attached", "not yet available", "will not be provided", "has not yet been returned" — so the absence family compiles through one shared prefix rather than an enumerated list. Overlapping matches resolve longest-first and report once: three findings for one clause is how a linter gets switched off.
 
-**(b) Similarity to historical RFI triggers**
+Every pattern here describes the *writing*. None asserts a regulatory requirement, which is what keeps this file inside CLAUDE.md §8.
 
-Embed the draft section, retrieve the nearest historical sections that *did* trigger an RFI, filtered to the same section type and Member State. Use `mean(top 3 cosine)` rather than `max` — max is noisy on a corpus this size.
+### 3.2 Signal (b) — rules mined from the corpus, never hand-authored
 
-**(c) Historical base rate**
+`mined_rules()` in `0025`, shaped in `lib/precheck/rules.ts`.
 
-```sql
-select count(*) filter (where triggered_rfi) :: numeric / nullif(count(*),0)
-from historical_sections
-where section = $1 and member_state = $2 and submission_type = $3;
-```
+Group past considerations by (Member State × application section × submission type). A recurring theme becomes a rule carrying a count, a distinct-trial count, a date range, and the number of occurrences that were actually resolved.
 
-Apply Laplace smoothing for thin slices: `(hits + 1) / (total + 2)`.
+A hand-written national-requirements matrix for fifteen Member States loses on three fronts, and mining wins each one:
 
-### 3.2 Blending
+- **Explainable by construction.** The rule *is* its evidence. "IT raised this 33 times across 26 trials, between Mar 2023 and Apr 2025" is a sentence a regulatory writer can check.
+- **No authority claimed.** Nothing here states a national requirement this team has no standing to state.
+- **It scales.** Every Member State in the corpus gets the same treatment, rather than the four that got the most attention.
 
-```
-raw   = w_r · ruleScore + w_s · similarityScore + w_b · baseRate
-score = 100 · sigmoid(a · (raw − b))
-```
+Threshold is 3 occurrences. Deliberately low — the cost of a spurious flag is one glance, the cost of a missed one is a request for information with a hard clock on it — and the count travels with the flag so a reader can discount a thin rule themselves.
 
-Start at `w_r = 0.5, w_s = 0.3, w_b = 0.2` — the rule engine leads deliberately, because a deterministic finding is more trustworthy and more actionable than a similarity number. Then fit `a` and `b` on the training split and **report the fitted values and the AUC**. Bands: `< 33 LOW`, `33–66 MEDIUM`, `> 66 HIGH`, with thresholds chosen from the precision/recall curve rather than picked round.
+### 3.3 Date-scoping — the difference between a tool that gets opened and one that does not
 
-### 3.3 Output contract
+Italy's fee rule applies to submissions from 17 February 2025. A rule mined from 2023 may describe a requirement that no longer exists.
 
-Per section, never one global score:
+So every rule carries `first_seen` and `last_seen`, and one unseen for **12 months** is greyed and never fires. It stays in the result as SKIPPED, with its age stated, because a writer who cannot see what did not run has to guess at coverage.
 
-```json
-{
-  "section": "IMPD Quality",
-  "score": 78,
-  "band": "HIGH",
-  "topDrivers": [
-    { "type": "RULE",       "id": "GMP_QP_DECLARATION", "contribution": 0.42,
-      "message": "No QP declaration detected covering the stated manufacturing site." },
-    { "type": "SIMILARITY", "contribution": 0.24,
-      "message": "Closely resembles 3 past sections that received IMPD Quality RFIs." },
-    { "type": "BASE_RATE",  "contribution": 0.12,
-      "message": "IMPD Quality triggers an RFI in 22% of substantial modifications." }
-  ],
-  "precedents": [
-    { "considerationId": "…", "similarity": 0.86,
-      "consideration": "…", "approvedResponse": "…", "memberState": "DE" }
-  ],
-  "recommendedAction": "Attach the QP declaration for site X before submission."
-}
-```
+This is not hypothetical on our own corpus: `FEE_NATIONAL_UPDATE` for Italy is the largest cluster in the repository at 33 occurrences, and its last sighting is April 2025. The check refuses to fire the biggest rule it has, and says why. That is the demo.
 
-**`recommendedAction` is the field that converts a score into work.** A regulatory user does not want a number; they want to know what to do before lunch.
+### 3.4 Precedent, and turning a flag into a fix
+
+`rule_precedents()` returns the request as the regulator wrote it, the date, the trial, and the sponsor response that closed it — filtered to APPROVED/SUBMITTED and ACCEPTED, because a rejected answer is not precedent. Matching is exact on (category, section, Member State): no embeddings, so it works with no model configured and is explainable in one sentence.
+
+Each flag then carries three things, and none of them is generated text:
+
+1. **The missing artefact** — `artefactKey` from the taxonomy. "POL payment receipt, ISTAT-updated amount".
+2. **Suggested wording** — lifted verbatim from an accepted past response, with the record it came from, behind a copy-to-clipboard button. Nobody pastes unverified generated text into a CTIS dossier; a suggestion that cannot be traced is worth less than no suggestion at all.
+3. **The owner** — `owner` from the taxonomy. Writers rarely control the missing document. They control who they chase for it.
+
+### 3.5 What the screen shows
+
+Flags are the hero. The headline is **"2 blockers, 3 likely triggers"**, never a score. Underneath, every mined rule is listed as flagged / clear / skipped with its reason, so coverage is visible rather than assumed — and the coverage panel states the corpus date range, that every record is synthetic, and which requested Member States have no precedent at all. For those, a clean result means *no data*, which is a different thing from *no risk* and the more dangerous of the two.
 
 ## 4. Feature 3 — Grounded draft generation
 

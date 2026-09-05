@@ -1,8 +1,8 @@
 /**
  * EU CTR RFI taxonomy — the domain backbone of the whole system.
  *
- * Everything downstream reads from here: the synthetic corpus generator, the risk
- * rule engine, the analytics groupings, and the search facets. There is no official
+ * Everything downstream reads from here: the synthetic corpus generator, the
+ * ingestion classifier, the analytics groupings, and the search facets. There is no official
  * category taxonomy for validation RFIs, so this is our contribution — see
  * docs/01-DOMAIN.md §5 for the reasoning and present it as a slide.
  *
@@ -34,9 +34,9 @@ export interface Category {
   owner: TeamRole
   /** Relative frequency weight. Deliberately Pareto — see docs/03-DATA-MODEL.md §2.1. */
   weight: number
-  /** Is this class of RFI preventable by a pre-submission check? Feature 2 depends on it. */
+  /** Would a completeness check before submission have avoided this class of RFI? Drives the analytics preventability split. */
   preventable: boolean
-  /** Deterministic artefact the rule engine looks for. Null = no clean rule check. */
+  /** The artefact this category is about. Null = no single document answers it. */
   artefactKey: string | null
 }
 

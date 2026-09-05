@@ -8,7 +8,7 @@ import { log } from '@/lib/log'
  *
  * SQL returns counts; tier, preventability and owning team are applied here from
  * `lib/domain/taxonomy.ts`. One copy of the domain knowledge, same reasoning as
- * the rule engine (ADR-024).
+ * the ingestion classifier (ADR-024).
  *
  * Everything is read through the user's client, so RLS applies. Two teams
  * looking at this page can legitimately see different totals, and that is

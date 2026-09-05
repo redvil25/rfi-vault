@@ -7,7 +7,7 @@
  *
  * Where it is genuinely unsure it returns UNCLASSIFIED rather than guessing —
  * the review screen then asks a human. That is the correct failure mode here:
- * a wrong category silently poisons the analytics and the risk base rates.
+ * a wrong category silently poisons every share the analytics dashboard reports.
  */
 
 import { CATEGORY_BY_ID } from '@/lib/domain/taxonomy'

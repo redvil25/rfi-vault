@@ -8,7 +8,7 @@
 
 **Context:** Novo Nordisk GBS Hackathon 2026, Problem Statement #18 — *"Repository for Validation RFI considerations & responses received for EU CTR submissions."*
 
-**One-line pitch:** A searchable, auditable repository of EU CTR Request-For-Information (RFI) considerations and approved sponsor responses that (a) finds precedent instantly, (b) predicts which sections of a *draft* application will trigger an RFI before submission, and (c) drafts grounded responses with citations.
+**One-line pitch:** A searchable, auditable repository of EU CTR Request-For-Information (RFI) considerations and approved sponsor responses that (a) finds precedent instantly, (b) checks a draft section against what this Member State actually asks — with the past request and the accepted answer attached — and (c) drafts grounded responses with citations, or refuses when the precedent is not there.
 
 **Deadline:** final submission ~11 September 2026 (one month from the 11 August 2026 kickoff). Confirm exact date with the Novo Nordisk mentor in Week 1.
 
@@ -61,7 +61,7 @@ thing to add when something outside this app needs to call in, and nothing does.
   /(auth)               sign-in, sign-up
   /(app)
     /search             Feature 1 — hybrid search
-    /assess             Feature 2 — proactive risk scoring
+    /precheck           Feature 2 — pre-submission check (lint + mined rules)
     /rfi/[id]           RFI detail, Feature 3 draft generation, the status machine
     /ingest             document upload + parse
     /analytics          Feature 4 — dashboard
@@ -69,9 +69,9 @@ thing to add when something outside this app needs to call in, and nothing does.
 /lib
   /ai                   embeddings, prompts, LLM clients, verifier
   /draft                precedent retrieval, the confidence gate, draft orchestration
+  /precheck             absence/futurity lint, corpus-mined rules, date scoping
   /workflow             the response status machine and its executor
   /search               RRF fusion, reranking
-  /risk                 rule engine + scoring model
   /db                   typed Supabase client, queries
   /audit                event emitter
 /supabase
@@ -80,7 +80,7 @@ thing to add when something outside this app needs to call in, and nothing does.
 /scripts
   /seed                 synthetic corpus generator (deterministic)
   /verify               live checks against the linked project, run before a demo
-  /eval                 retrieval + risk + groundedness evaluation harness
+  /eval                 retrieval + groundedness evaluation harness
 /docs                   all planning + knowledge docs (read these)
 /e2e                    Playwright specs
 ```
@@ -100,7 +100,7 @@ npm run seed             # regenerate synthetic corpus (deterministic, seed=42)
 npm run seed -- --keep   # add to the existing corpus instead of wiping it
 npm run verify           # live smoke test: RLS isolation, search, audit immutability
 npm run verify:ingest    # live end-to-end ingestion test against the fixture PDF
-npm run verify:assess    # live end-to-end risk assessment against the seeded corpus
+npm run verify:precheck  # live pre-submission check: mined rules, staleness, precedent
 npm run verify:dashboards # live analytics + audit checks, incl. proving audit immutability
 npm run verify:draft     # live drafting refusal, status machine, and the approve-to-share loop
 npm run setup:storage    # create the private rfi-documents bucket (once per project)
@@ -158,7 +158,7 @@ When an AI agent works in this repo:
 | What is an RFI, really? | `docs/01-DOMAIN.md` |
 | How does the system fit together? | `docs/02-ARCHITECTURE.md` |
 | What tables exist? | `docs/03-DATA-MODEL.md` |
-| How does search / risk / RAG work? | `docs/04-AI-PIPELINE.md` |
+| How does search / the check / RAG work? | `docs/04-AI-PIPELINE.md` |
 | How do we prove it works? | `docs/05-EVALUATION.md` |
 | What do we say to the judges? | `docs/06-DEMO-AND-DECK.md` |
 | Who does what, what could go wrong? | `docs/07-TEAM-AND-RISKS.md` |

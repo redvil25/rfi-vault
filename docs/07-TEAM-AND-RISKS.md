@@ -13,12 +13,12 @@ Owns embeddings, the `hybrid_search` function, RRF tuning, confidence calibratio
 Deliverables: `lib/search/*`, `0008_hybrid_search.sql`, `scripts/eval/*`, `docs/metrics/*.json`.
 
 ### AI Engineer
-Owns the risk model, the RAG pipeline, prompts, the confidence gate, the verifier pass, and the `ai_calls` telemetry.
-Deliverables: `lib/risk/*`, `lib/ai/*`, the refusal path, groundedness numbers.
+Owns the RAG pipeline, prompts, the confidence gate, the verifier pass, and the `ai_calls` telemetry.
+Deliverables: `lib/draft/*`, `lib/ai/*`, the refusal path, groundedness numbers.
 
 ### Frontend / UX
-Owns all five screens, charts, the workflow UI, states, and accessibility. In a judged demo, the interface *is* the product — this is not a support role.
-Deliverables: search, assess, RFI detail, analytics, audit screens; Lighthouse ≥ 90 / ≥ 95.
+Owns all four screens, charts, the workflow UI, states, and accessibility. In a judged demo, the interface *is* the product — this is not a support role.
+Deliverables: search, ingest, RFI detail, analytics, audit screens; Lighthouse ≥ 90 / ≥ 95.
 
 ### Domain Lead / PM
 Owns EU CTR research, the taxonomy, the synthetic corpus design, the mentor relationship, the deck, and the report. **Highest-leverage role on the team** — domain accuracy and narrative are worth more points than any single feature.
@@ -38,11 +38,11 @@ Deliverables: `docs/01-DOMAIN.md` with zero unresolved `[VERIFY]` tags, `scripts
 
 | # | Risk | Likelihood | Impact | Mitigation | Owner |
 |---|---|---|---|---|---|
-| R1 | **Team builds a generic chatbot** and loses differentiation | Medium | Critical | Features 2 and 3 (prevention, refusal) are scheduled in Phase 2 and are non-cuttable. Re-read the differentiator section every Friday. | Lead |
+| R1 | **Team builds a generic chatbot** and loses differentiation | Medium | Critical | Feature 3 (grounded drafting with refusal) is scheduled in Phase 2 and is non-cuttable. Re-read the differentiator section every Friday. | Lead |
 | R2 | **Weak synthetic corpus** makes every feature look weak | High | Critical | Two full days budgeted; skeletons hand-written; team reads 30 samples aloud; distributions specified in advance. | Domain Lead |
-| R3 | **Gemini quota or outage during the demo** | Medium | Critical | Local embedding fallback; cached responses for the scripted demo RFIs; deterministic rules work with no model; recorded backup video. | AI Engineer |
+| R3 | **Gemini quota or outage during the demo** | Medium | Critical | Local embedding fallback; cached responses for the scripted demo RFIs; keyword search works with no model; recorded backup video. | AI Engineer |
 | R4 | **Live demo fails on the day** (network, Teams, laptop) | Medium | High | Recorded video ready to play; PDF deck local; pre-signed-in browser windows; full rehearsal on the actual setup. | Lead |
-| R5 | **Scope creep** — five features half-built | High | Critical | Phase exit criteria are hard gates. Feature freeze Sat 5 Sep, no exceptions. | Lead |
+| R5 | **Scope creep** — four features half-built | High | Critical | Phase exit criteria are hard gates. Feature freeze Sat 5 Sep, no exceptions. | Lead |
 | R6 | **Domain inaccuracy** noticed by a regulatory judge | Medium | High | `[VERIFY]` tag discipline; mentor validates the taxonomy in session 2; vocabulary rules in `docs/01-DOMAIN.md` §9. | Domain Lead |
 | R7 | **No numbers in the deck** | Medium | High | Eval harness is built in Phase 1, not at the end. It runs in CI. | Retrieval Engineer |
 | R8 | **Academic conflicts** — exams, classes, other deadlines | High | Medium | Map each member's unavailable days in Week 1; front-load their critical work; no single point of failure on any deliverable. | Lead |
@@ -62,9 +62,8 @@ If time runs short, cut in exactly this order. **Never cut upward.**
 3. OCR for scanned documents (already a stated non-goal)
 4. Analytics dashboard depth — reduce to three charts
 5. Multi-Member-State comparison view
-6. Draft application file upload — fall back to pasting section text
 
-**Never cut, under any argument:** hybrid search, per-section risk scoring, the confidence gate and refusal path, citations, the audit trail, the eval harness, the demo video, the rehearsals.
+**Never cut, under any argument:** hybrid search, the confidence gate and refusal path, citations, the audit trail, the eval harness, the demo video, the rehearsals.
 
 ## 5. What "production ready" means for this submission
 

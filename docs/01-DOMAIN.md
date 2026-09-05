@@ -184,7 +184,7 @@ The problem statement names four groups. Our RBAC model is built on exactly thes
 | **RA Clinical** | Owns the scientific/Part I response. Needs precedent for protocol and IMPD questions. |
 | **Affiliates** | Local country teams. Own Part II and national requirements. Need country-specific precedent in their own MS context. |
 | **CTA Management** | Coordinates the dossier and the clock. Needs status, deadlines, and who owes what. |
-| **EU Submission Hub** | Submits into CTIS and is the last line before the regulator. Needs quality control and completeness checks — **this is the primary user of Feature 2, proactive risk scoring.** |
+| **EU Submission Hub** | Submits into CTIS and is the last line before the regulator. Needs quality control and completeness checks, and precedent for whatever the regulator sends back. |
 
 ## 8. The business case arithmetic
 

@@ -42,7 +42,7 @@ export const BAND_GUIDANCE: Record<ConfidenceBand, string> = {
 
 export const BAND_STYLE: Record<ConfidenceBand, string> = {
   STRONG: 'bg-ok-soft text-ok',
-  RELATED: 'bg-warn-soft text-warn',
+  RELATED: 'bg-background text-muted',
   WEAK: 'bg-background text-muted',
   NONE: 'bg-background text-muted',
 }

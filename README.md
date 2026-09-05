@@ -17,7 +17,7 @@ Validation RFIs run on a hard clock. Missing it can invalidate the application a
 | # | Feature | What it does |
 |---|---|---|
 | 1 | **Hybrid search** | Semantic search for meaning plus keyword search for identifiers and regulation codes, fused with Reciprocal Rank Fusion. Returns precedent considerations, their approved responses, and a calibrated confidence score. |
-| 2 | **Proactive risk scoring** | Upload a draft application before submitting. Each section is scored against a deterministic rule engine, similarity to historical RFI triggers, and historical base rates. Per-section bands, with the precedent and the response that resolved it. |
+| 2 | **Pre-submission check** | Paste a section before you file it. A deterministic lint reads the wording for gaps the writer already admitted — *not attached*, *will be provided*, `XXX` — and rules mined from the corpus by (Member State × section × submission type) say what this country actually asks. Every flag carries the past request verbatim, the response that closed it, the artefact to produce and who to chase. Rules unseen for 12 months are greyed, not fired. No score. |
 | 3 | **Grounded draft generation** | RAG over approved, accepted precedent. Cites every claim, flags differences from precedent, and **refuses to draft when no sufficient precedent exists**. An independent verifier model scores every sentence for support. |
 | 4 | **Analytics** | Which sections and countries generate the most RFIs, recurrence patterns, clock analytics, and the preventable share. |
 | 5 | **Audit trail** | Append-only, enforced by database trigger. Draft → review → approve → submit, scoped by team and by section. Approved responses feed back into the repository. |
@@ -45,7 +45,7 @@ Other commands:
 npm run typecheck
 npm run test        # vitest
 npm run test:e2e    # playwright
-npm run eval        # retrieval + risk + groundedness metrics -> docs/metrics/latest.json
+npm run eval        # retrieval + groundedness metrics -> docs/metrics/latest.json
 npm run build
 ```
 
@@ -63,7 +63,7 @@ npm run build
 | [docs/01-DOMAIN.md](docs/01-DOMAIN.md) | EU CTR, CTIS, and the RFI category taxonomy |
 | [docs/02-ARCHITECTURE.md](docs/02-ARCHITECTURE.md) | System design and request flows |
 | [docs/03-DATA-MODEL.md](docs/03-DATA-MODEL.md) | Schema, SQL, and synthetic corpus design |
-| [docs/04-AI-PIPELINE.md](docs/04-AI-PIPELINE.md) | Retrieval, risk scoring, RAG, verification |
+| [docs/04-AI-PIPELINE.md](docs/04-AI-PIPELINE.md) | Retrieval, the pre-submission check, RAG, verification |
 | [docs/05-EVALUATION.md](docs/05-EVALUATION.md) | Metrics, ablations, and how we prove it works |
 | [docs/06-DEMO-AND-DECK.md](docs/06-DEMO-AND-DECK.md) | Demo script, slide structure, report, Q&A |
 | [docs/07-TEAM-AND-RISKS.md](docs/07-TEAM-AND-RISKS.md) | Roles, risk register, scope-cut order |

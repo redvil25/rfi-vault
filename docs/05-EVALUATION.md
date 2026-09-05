@@ -7,7 +7,6 @@
 ```
 scripts/eval/
   gold-retrieval.json    50 queries × human-marked relevant consideration IDs
-  gold-risk.json         held-out draft sections with RFI/no-RFI labels (20% split)
   gold-groundedness.json 30 RFIs for draft evaluation with precedent sets
   run.ts                 executes all suites → docs/metrics/latest.json + markdown table
 ```
@@ -41,26 +40,7 @@ This second table is the argument. It shows *why* hybrid exists rather than asse
 - RRF `k` sweep: 10, 20, 40, 60, 100 → nDCG@10 curve. Report the chosen value and why.
 - Embedding dimension: 768 vs 1536 → quality gain against index size and latency. If 768 is within noise of 1536, say you chose the cheaper one deliberately.
 
-## 3. Suite B — Risk model
-
-Held-out 20% split, never touched during weight fitting.
-
-**Metrics:** ROC-AUC, PR-AUC, precision at the HIGH band, recall at the HIGH band, calibration (reliability plot), confusion matrix.
-
-**Ablations:**
-
-| Configuration | AUC | Precision @ HIGH | Recall @ HIGH |
-|---|---|---|---|
-| Rules only | | | |
-| Similarity only | | | |
-| Base rate only | | | |
-| **Blended** | | | |
-
-**The framing that matters:** in this domain, a false negative (missing a section that then triggers an RFI) costs far more than a false positive (asking a reviewer to double-check a section that was fine). So tune the HIGH threshold for **recall**, state that trade-off explicitly, and show the precision you paid for it. Naming an asymmetric cost function and tuning to it is a mature engineering argument that will stand out.
-
-Also report **lift**: among sections the model bands HIGH, what share actually triggered an RFI, versus the corpus base rate? "The base rate is 18%; among HIGH-banded sections it is 61% — a 3.4× lift" is a sentence a business audience immediately understands.
-
-## 4. Suite C — Draft groundedness and usefulness
+## 3. Suite B — Draft groundedness and usefulness
 
 **Automatic:**
 - **Groundedness** — share of generated sentences supported by a cited precedent, per the verifier pass. Target ≥ 0.90.
@@ -72,12 +52,12 @@ Also report **lift**: among sections the model bands HIGH, what share actually t
 - Edit distance proxy: share of the draft retained after the rater's edit.
 - Time-to-response: rater writes a response from scratch versus edits the draft. **Report the measured minutes.** This is the number that converts directly into the Business Impact slide, and it is measured on your own team rather than assumed.
 
-## 5. Suite D — System quality
+## 4. Suite C — System quality
 
 | Check | Target |
 |---|---|
 | Unit test coverage on `lib/` | ≥ 70% |
-| E2E specs passing | 100%, covering all five features |
+| E2E specs passing | 100%, covering every shipped feature |
 | RLS isolation test | Affiliate cannot read RA Clinical drafts |
 | Audit immutability test | `UPDATE`/`DELETE` on `audit_events` raises |
 | Build | `npm run build` clean, zero TypeScript errors |
@@ -86,16 +66,13 @@ Also report **lift**: among sections the model bands HIGH, what share actually t
 
 Accessibility is worth a real check, not a token one: keyboard navigation, focus states, contrast, screen-reader labels on charts. A large regulated employer cares about this, and it costs an hour with shadcn/ui.
 
-## 6. The metrics slide
+## 5. The metrics slide
 
 One slide, three blocks, all numbers from `docs/metrics/latest.json`:
 
 ```
 RETRIEVAL          Recall@5  0.xx   (vector-only 0.xx, keyword-only 0.xx)
                    nDCG@10   0.xx      p95 latency  xxx ms
-
-RISK PREDICTION    AUC       0.xx      Precision@HIGH  0.xx
-                   Lift over base rate  x.x×
 
 GENERATION         Groundedness  0.xx  Refusal accuracy  xx/xx
                    Median drafting time  x min  →  x min   (n = 30)
