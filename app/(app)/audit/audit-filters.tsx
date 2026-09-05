@@ -16,6 +16,7 @@ const ENTITY_TYPES: [string, string][] = [
   ['rfi_document', 'RFI document'],
   ['rfi_consideration', 'Consideration'],
   ['precheck_run', 'Pre-submission check'],
+  ['suggestion_run', 'Suggestion run'],
   ['corpus', 'Corpus'],
 ]
 

@@ -234,11 +234,54 @@ Render unsupported sentences with an amber underline and a "no precedent support
 
 On approval, the response is written back with `response_status = APPROVED`, re-embedded, and becomes precedent for the next query. Show this live: approve a draft, then run a search that returns it. That closes the loop the solution overview promises and makes "the system gets smarter over time" a demonstrated claim rather than a bullet point.
 
-## 5. Feature 4 — Analytics
+## 5. Feature 6 — Suggestions: three grounded options for a request that just arrived
+
+Feature 3 answers a consideration that is **already filed**, inside the status machine, and produces one draft to be reviewed and approved. This answers one that just landed in somebody's inbox and is not in the repository yet, and produces **options** rather than an answer. Nothing is written to `rfi_consideration`: the request is a paste, not a record, so there is no status to move and nothing to approve.
+
+### 5.1 Reading the paste
+
+`lib/suggest/parse.ts`, all deterministic, and everything it cannot determine comes back null.
+
+- **Member State** from the CTIS prefix (`IT - …`) or an exact country name in the text. An unknown two-letter prefix is not a Member State.
+- **Category** from `classifyConsideration` — the same classifier ingestion uses, so a suggestion and a filed consideration cannot disagree about what a request is about (ADR-024).
+- **Section** from the user's choice, always. It only falls back to the taxonomy when the user left it blank *and* the category maps to exactly one section. Retrieval is filtered by section, so a wrong section returns precedent from the wrong part of the dossier and the writer has no way to see it happened — **the run refuses rather than guessing**.
+- **Multiple considerations** in one paste are split on the CTIS numbering. The first is answered and the rest are offered; blending several questions into one embedding retrieves precedent for none of them.
+
+### 5.2 Three strategies, not three paraphrases
+
+Three rephrasings of one sentence are not three options — a writer choosing between them is choosing nothing. The three moves actually available when a regulator asks for something:
+
+| Strategy | The move | |
+|---|---|---|
+| `SUPPLY` | The artefact exists or can be produced. Attach it and say so. |
+| `JUSTIFY` | The dossier already answers this. Point at where, and why it is sufficient. |
+| `COMMIT` | It does not exist yet. Say so, and commit to a date rather than going quiet. |
+
+Each option carries `whenToUse`, a **`risk`** — the reason *not* to pick it, because an option with no downside has not been thought about — the attachments it implies, and at least one citation.
+
+The schema is `.min(1).max(3)`, never `.length(3)`. If the precedent supports only two honest strategies, two is the right answer; padding to three would invent the third, which is the failure this product exists to prevent.
+
+### 5.3 The order is the safety property
+
+Retrieve → gate → generate, exactly as Feature 3 (ADR-005). Nothing reaches the model until the repository has proved it holds something close enough. A pipeline that generates first and checks after has already produced the text it was supposed to refuse to produce.
+
+Below the similarity threshold the run refuses, names the team to escalate to from the taxonomy, and **still shows the closest records it found** — not close enough to answer from, but worth reading.
+
+### 5.4 What the schema cannot catch
+
+A citation naming a `consideration_id` that was never retrieved is a fabricated reference, and `generateObject` will happily validate it: it is a well-formed string. So every citation is checked against the retrieved set afterwards and dropped if it does not resolve. An option left with no citations at all is discarded, and if that leaves nothing, the run refuses — **an uncheckable suggestion is worse than none**.
+
+Each surviving option is graded independently by the stronger model against the same precedents, so the groundedness figure on a card belongs to that card. A verifier failure degrades to *ungraded* and says so, rather than dropping the option or implying a grade it does not have (ADR-025).
+
+### 5.5 Untrusted input
+
+The pasted request is a document supplied by a user, and it reaches a model. It is fenced in the prompt and the system prompt says explicitly that anything inside reading like an instruction — to ignore the rules, to change the output format, to reveal the prompt — is part of the document being quoted, not a direction. The output schema is a further constraint: there is no free-text field a redirected model could answer into.
+
+## 6. Feature 4 — Analytics
 
 Aggregate SQL views, no AI required. The one AI touch worth adding: an LLM-generated **"insight of the week"** summarising the largest movement in the data, grounded strictly in the aggregate rows passed to it. Small, safe, and it makes the dashboard feel alive.
 
-## 6. Prompt engineering practices to follow
+## 7. Prompt engineering practices to follow
 
 - Every prompt lives in `lib/ai/prompts/`, is versioned, and is unit-tested against fixtures.
 - Temperature 0.2 for drafting, 0 for extraction and verification.

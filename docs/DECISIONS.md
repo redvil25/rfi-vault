@@ -549,3 +549,29 @@ Two gates now stand between a mined rule and a flag. **Substance**: a section un
 The headline changed with it. "Nothing found" and "nothing looked at" rendered identically before; a one-word paste headlined as a clean pass, which is the most dangerous sentence this screen could produce. It now reads **"Nothing was checked"** and names the sections that were too short.
 
 **Also built, having been listed as missing.** Cross-section consistency (protocol version and date, subject count, IMP name and strength, EU trial number) — with the rule that a value found in only one pasted section is reported *not checked*, never consistent. Whole-dossier auto-sectioning, where an unrecognised heading is listed and excluded rather than filed under the nearest-looking section. And a timestamped JSON snapshot carrying scope, rule versions, every outcome and the audit event id, so a regulated team can show what it checked months later.
+
+---
+
+## ADR-034 — Suggestions are options with a downside, not a better draft
+**2026-09-05 · Accepted · Builds on ADR-005**
+
+**Context.** Feature 3 answers a consideration that is already filed: one draft, inside the status machine, to be reviewed and approved. The request that has *just arrived* is a different situation. It is not in the repository, there is no record to move through a workflow, and the writer's question is not "what is the answer" but "what are my options".
+
+The obvious build — retrieve precedent, ask for three responses — produces three paraphrases of one sentence. A writer choosing between them is choosing nothing, and the feature is then a slower version of Feature 3.
+
+**Decision.** Three **strategies**, not three drafts. `SUPPLY` (the artefact exists, attach it), `JUSTIFY` (the dossier already answers this, point at where), `COMMIT` (it does not exist, say so and give a date). These are the three moves actually available when a regulator asks for something, and they are distinguishable enough that picking one is a decision.
+
+Each option carries `whenToUse` and — the field that earns the screen — **`risk`**, the reason *not* to choose it. An option presented with no downside has not been thought about, and a regulatory reviewer will not trust one that pretends otherwise.
+
+The schema is `.min(1).max(3)`. If the precedent supports two honest strategies, two is the answer; padding to three would invent the third, which is the failure this product exists to prevent.
+
+**Consequences.**
+- **Retrieve, gate, generate — unchanged from ADR-005.** Below the similarity threshold nothing is drafted, the taxonomy names the team to escalate to, and the closest records are still shown: not close enough to answer from, but worth reading.
+- **The section is never guessed.** Retrieval is filtered per application section, so a wrong section returns precedent from the wrong part of the dossier and the writer cannot see it happened. When the user leaves it blank and the classifier cannot resolve it to exactly one section, the run refuses and asks.
+- **Citations are re-checked against the retrieved set.** A `consideration_id` that was never retrieved is a fabricated reference and `generateObject` validates it happily — it is a well-formed string. Invalid citations are dropped, an option left with none is discarded, and if that empties the list the run refuses. An uncheckable suggestion is worse than none.
+- **Each option is graded separately** by the stronger model. A verdict on "the third sentence" means nothing if the grader cannot tell which option it belongs to. A verifier failure degrades to *ungraded* and says so rather than implying a grade (ADR-025).
+- **The paste is untrusted input reaching a model.** It is fenced, and the system prompt states that anything inside reading like an instruction is part of the quoted document. The output schema is the second constraint: there is no free-text field a redirected model could answer into.
+- **Nothing is persisted but an audit event.** `SUGGESTED` or `SUGGEST_REFUSED`, carrying the section, Member State, category, similarity and which strategies came back — never the pasted request, which is the sponsor's.
+- **Deliberately not built:** no way to file the chosen option as a consideration from this screen. That is Feature 3's job and it has the status machine, the approval step and the audit trail to do it properly. A second, lighter path into the repository would be a second set of rules about who may write to it.
+
+**Found while shipping this.** `GOOGLE_GENERATIVE_AI_API_KEY` is set to an empty string in the production environment, so `aiEnabled()` is false there. Semantic retrieval, drafting and suggestions all refuse on the deployed site and say why — which is the designed behaviour and is exactly what the search page's "keyword search only" notice has been reporting. It is a configuration gap, not a code defect, and no amount of code will make the feature demonstrable until a real key is set.

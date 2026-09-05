@@ -27,7 +27,7 @@ if (typeof window !== 'undefined') {
  *      this module is a call missing from the slide.
  */
 
-export type AiPurpose = 'EMBED' | 'EXTRACT' | 'DRAFT' | 'VERIFY' | 'RERANK'
+export type AiPurpose = 'EMBED' | 'EXTRACT' | 'DRAFT' | 'SUGGEST' | 'VERIFY' | 'RERANK'
 
 export class AiDisabledError extends Error {
   constructor(what: string) {

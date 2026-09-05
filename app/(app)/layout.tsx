@@ -15,6 +15,7 @@ const NAV = [
   { href: '/search', label: 'Search', ready: true },
   { href: '/ingest', label: 'File a document', ready: true },
   { href: '/precheck', label: 'Pre-submission check', ready: true },
+  { href: '/suggest', label: 'Suggestions', ready: true },
   { href: '/analytics', label: 'Analytics', ready: true },
   { href: '/audit', label: 'Audit trail', ready: true },
 ]

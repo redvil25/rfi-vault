@@ -62,6 +62,7 @@ thing to add when something outside this app needs to call in, and nothing does.
   /(app)
     /search             Feature 1 — hybrid search
     /precheck           Feature 2 — pre-submission check (lint + mined rules)
+    /suggest            Feature 6 — three grounded options for a pasted RFI
     /rfi/[id]           RFI detail, Feature 3 draft generation, the status machine
     /ingest             document upload + parse
     /analytics          Feature 4 — dashboard
@@ -70,6 +71,7 @@ thing to add when something outside this app needs to call in, and nothing does.
   /ai                   embeddings, prompts, LLM clients, verifier
   /draft                precedent retrieval, the confidence gate, draft orchestration
   /precheck             absence/futurity lint, corpus-mined rules, date scoping
+  /suggest              paste parsing, strategy options, citation validation
   /workflow             the response status machine and its executor
   /search               RRF fusion, reranking
   /db                   typed Supabase client, queries
@@ -103,6 +105,7 @@ npm run verify:ingest    # live end-to-end ingestion test against the fixture PD
 npm run verify:precheck  # live pre-submission check: mined rules, staleness, precedent
 npm run verify:dashboards # live analytics + audit checks, incl. proving audit immutability
 npm run verify:draft     # live drafting refusal, status machine, and the approve-to-share loop
+npm run verify:suggest   # live suggestions: the gate, distinct strategies, citation validity
 npm run setup:storage    # create the private rfi-documents bucket (once per project)
 npm run ingest -- <pdf>  # parse a CTIS RFI export and print the extraction (read-only)
 npm run fixtures:pdf     # regenerate fixtures/rfi-example-ctis.pdf (needs python + reportlab)
