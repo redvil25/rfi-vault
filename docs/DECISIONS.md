@@ -628,3 +628,31 @@ ADR-002 claims hybrid retrieval exists so that identifiers *and* meaning both wo
 - The by-type table now makes the argument it was always supposed to: keyword scores 0.000 on paraphrase, vector scores 0.000 on identifiers, and hybrid is the only column never zero.
 - **The first attempt at this migration broke search**, by using `create or replace` on the older ten-argument signature and leaving it beside the current thirteen-argument one — every named-argument call then failed as ambiguous. 0021 documents that exact hazard in capitals, three migrations earlier. `0026` drops both signatures before creating.
 - The lesson is the one docs/05 opens with, and it earned itself here: an ablation table is not a slide, it is a test. This defect was invisible to the typecheck, the unit tests, the live smoke test and the eye.
+
+---
+
+## ADR-037 — A suggestion must survive the check the product already applies to text
+**2026-09-05 · Accepted · Refines ADR-034**
+
+**Context.** Three defects surfaced within minutes of the first real use, and none was catchable by a schema.
+
+*The section was refused when it was known.* `parseRequest` accepted the classifier's section only when the category mapped to **exactly one**. Proof of payment is filed under both Regulatory and Cover Letter, so the commonest request in the corpus classified at 0.72 confidence and came back "section not identified". Nine of twenty-nine categories map to more than one section; the rule refused a third of the taxonomy.
+
+*The models disagreed about what an option is.* `gpt-oss-20b` returned one option whose stated risk was `"None."`. `qwen3.8-27b` returned three — containing `[INSERT_REFERENCE_NUMBER]`, and one whose entire draft was `"N/A"` with a paragraph in `risk` explaining that the strategy was unsupported. Both passed the Zod schema: every field was a non-empty string of the right type.
+
+*And the lint could not see the placeholder.* `gpt-oss-120b` wrote `POLXXXXX`. Feature 2's placeholder pattern was `x{3,}` — a word boundary before a run that, in a dossier, is glued to the label in front of it. `POLXXXXX` has no boundary before the Xs, so the pre-submission check would have missed it too.
+
+**Decision.**
+
+Sections resolve to a **candidate set**, not a single value. One section when the category names one, the category's whole set when it legitimately spans a few, and a refusal only when the set is empty or larger than four — `DOC_MISSING` lists nineteen, which is not a filter, it is the absence of one. Retrieval drops the SQL section filter and applies the candidate set after hydration, so the query still narrows by application section part.
+
+**Feature 2's lint is the judge of Feature 6's output.** A suggestion containing placeholder text is text this product would flag as a blocker the moment it were pasted into a dossier; handing it to a writer would have one feature manufacturing the exact defect another exists to catch. One implementation, one standard. Non-answers — a draft under twenty-five characters, or opening with "N/A" or "not applicable" — go the same way.
+
+Model choice is **measured, not assumed**: `gpt-oss-120b` drafts. The verifier is `qwen3.8-27b`, deliberately a different family rather than a larger member of the same one — a grader sharing the drafter's blind spots agrees with it, and ADR-006 wants a check, not a chorus. That trades some capability for independence, and the trade is the point.
+
+**Consequences.**
+- The flagship request now returns a grounded option at 100% verified support instead of a refusal.
+- The lint gained a `raw` escape hatch for patterns that must match *inside* a token. It is used once. The automatic word boundary is right for every phrase — "pending" must not fire inside "appending" — and wrong for a run of placeholder characters.
+- **Feature 2 got better because Feature 6 used it.** `POLXXXXX` in a real dossier would have gone unflagged before today.
+- The prompt now forbids placeholders explicitly, and names concrete risks for each strategy, because "None." is what a model writes when asked for a downside in the abstract.
+- Three model families were tried against the same request. That comparison is the only reason the right one was chosen, and it cost four minutes.

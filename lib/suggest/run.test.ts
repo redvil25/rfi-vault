@@ -184,7 +184,45 @@ describe('citations the schema cannot check', () => {
     const outcome = await suggestResponses({ text: REQUEST, section: 'Regulatory' }, db, opts)
     expect(outcome.refused).toBe(true)
     if (!outcome.refused) return
-    expect(outcome.reason).toMatch(/none of them can be traced to precedent/i)
+    expect(outcome.reason).toMatch(/No option survived checking/i)
+    expect(verifyMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('options that are not answers', () => {
+  it('discards a draft containing placeholder text the pre-submission check would flag', async () => {
+    retrievalOk()
+    generated([
+      option({ strategy: 'SUPPLY', draft: 'The bank transfer receipt referencing POLXXXXX has been uploaded.' }),
+      option({ strategy: 'COMMIT' }),
+    ])
+    const outcome = await suggestResponses({ text: REQUEST, section: 'Regulatory' }, db, opts)
+    expect(outcome.refused).toBe(false)
+    if (outcome.refused) return
+    // Suggesting it would hand the writer the exact defect Feature 2 exists to catch.
+    expect(outcome.options.map((o) => o.strategy)).toEqual(['COMMIT'])
+  })
+
+  it('discards a refusal wearing the clothes of an option', async () => {
+    retrievalOk()
+    generated([
+      option({ strategy: 'JUSTIFY', draft: 'N/A' }),
+      option({ strategy: 'SUPPLY' }),
+    ])
+    const outcome = await suggestResponses({ text: REQUEST, section: 'Regulatory' }, db, opts)
+    expect(outcome.refused).toBe(false)
+    if (outcome.refused) return
+    expect(outcome.options.map((o) => o.strategy)).toEqual(['SUPPLY'])
+  })
+
+  it('refuses when every option is unusable', async () => {
+    retrievalOk()
+    generated([
+      option({ strategy: 'SUPPLY', draft: 'Reference XXXXXX has been uploaded to the dossier.' }),
+      option({ strategy: 'JUSTIFY', draft: 'Not applicable.' }),
+    ])
+    const outcome = await suggestResponses({ text: REQUEST, section: 'Regulatory' }, db, opts)
+    expect(outcome.refused).toBe(true)
     expect(verifyMock).not.toHaveBeenCalled()
   })
 })

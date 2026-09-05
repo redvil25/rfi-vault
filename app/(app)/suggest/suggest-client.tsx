@@ -51,7 +51,16 @@ function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) 
 function ReadAs({ parsed }: { parsed: ParsedRequest }) {
   return (
     <p className="mt-3 text-[13px] text-muted">
-      Read as: <span className="font-medium text-foreground">{parsed.section ?? 'section not identified'}</span>
+      Read as:{' '}
+      <span className="font-medium text-foreground">
+        {parsed.section ??
+          (parsed.sectionCandidates.length > 0
+            ? parsed.sectionCandidates.join(' or ')
+            : 'section not identified')}
+      </span>
+      {!parsed.section && parsed.sectionCandidates.length > 1 && (
+        <span> — searched across both, because this category is filed under either</span>
+      )}
       {parsed.memberState && (
         <>
           {' · '}

@@ -16,6 +16,17 @@ import type { ParsedRequest } from './types'
 /** Below this a paste is a fragment, not a request. */
 export const MIN_REQUEST_WORDS = 8
 
+/**
+ * A category attaching to more sections than this says nothing useful about
+ * where the request belongs.
+ *
+ * `DOC_MISSING` and `DOC_LEGIBILITY` list nineteen sections each — every
+ * section in the dossier — because a document can be missing or illegible
+ * anywhere. Searching all of them is not "narrowing by section", it is ignoring
+ * the filter, so those ask the user instead.
+ */
+export const MAX_SECTION_CANDIDATES = 4
+
 /** Above this the model call is not worth making and the paste is probably a whole document. */
 export const MAX_REQUEST_CHARS = 8000
 
@@ -94,20 +105,28 @@ export function parseRequest(raw: string, sectionHint?: string | null): ParsedRe
     memberState: null,
   })
 
-  // The category's own home section, used only when the user gave no hint and
-  // the classifier was confident. A category that spans several sections tells
-  // us nothing, so it resolves to null rather than to the first of them.
-  const taxonomySections = CATEGORY_BY_ID.get(classified.category)?.sections ?? []
-  const inferred =
-    classified.confidence >= 0.4 && taxonomySections.length === 1 ? taxonomySections[0] : null
+  // Sections the category is known to attach to. Requiring exactly one was too
+  // strict and refused the commonest request in the corpus: proof of payment is
+  // filed under both Regulatory and Cover Letter, so a confident 0.72
+  // classification still produced "section not identified".
+  const taxonomy = CATEGORY_BY_ID.get(classified.category)
+  const confident = classified.confidence >= 0.4
+  const candidates =
+    confident && taxonomy && taxonomy.sections.length <= MAX_SECTION_CANDIDATES
+      ? taxonomy.sections
+      : []
 
-  const section = sectionHint ?? inferred
+  // A definite section: the user's choice, or a category that attaches to
+  // exactly one. Anything else stays null and the candidates carry the answer.
+  const section = sectionHint ?? (candidates.length === 1 ? candidates[0] : null)
+  const part = section ? sectionPartFor(section) : (candidates.length > 0 ? (taxonomy?.part ?? null) : null)
 
   return {
     text,
     memberState: memberStateFrom(text),
     section,
-    sectionPart: sectionPartFor(section),
+    sectionPart: part,
+    sectionCandidates: sectionHint ? [sectionHint] : candidates,
     category: classified.category,
     categoryConfidence: classified.confidence,
     siblings: all.slice(1).map((t, i) => ({ index: i + 2, text: t })),

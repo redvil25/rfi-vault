@@ -45,6 +45,15 @@ interface Pattern {
   kind: LintKind
   /** Source fragment. Assembled with word boundaries; `\s+` tolerates line wraps. */
   source: string
+  /**
+   * Use the source verbatim, with no word boundaries added.
+   *
+   * For the rare pattern that must match *inside* a token. The automatic
+   * boundary is right for every phrase — "pending" must not fire inside
+   * "appending" — and wrong for a run of placeholder characters, which is
+   * usually glued to the label in front of it.
+   */
+  raw?: boolean
   because: string
 }
 
@@ -113,7 +122,13 @@ const FUTURITY: Pattern[] = [
  * not an editorial choice, it is a document that shipped by mistake.
  */
 const PLACEHOLDER: Pattern[] = [
-  { kind: 'PLACEHOLDER', source: 'x{3,}', because: 'Placeholder text left in the document.' },
+  // Four or more in a row, matched anywhere inside a token — `raw`, because the
+  // automatic word boundary is exactly what breaks it. These arrive in a dossier
+  // as "POLXXXXX" or "refXXXXXX", where the run has no boundary before it. No
+  // English word carries four consecutive x, so no lookaround is needed. A
+  // standalone three-letter "XXX" is caught by the rule below.
+  { kind: 'PLACEHOLDER', source: 'x{4,}', raw: true, because: 'Placeholder text left in the document.' },
+  { kind: 'PLACEHOLDER', source: '\\bx{3}\\b', because: 'Placeholder text left in the document.' },
   { kind: 'PLACEHOLDER', source: '\\[\\s*(?:insert|add|complete|enter|name|date|number|amount|tbc|tbd|\\.\\.\\.|x+)[^\\]]{0,40}\\]', because: 'Placeholder text left in the document.' },
   { kind: 'PLACEHOLDER', source: '<\\s*(?:insert|add|complete|enter|name|date|number|amount)[^>]{0,40}>', because: 'Placeholder text left in the document.' },
   { kind: 'PLACEHOLDER', source: '\\{\\{[^}]{1,60}\\}\\}', because: 'An unfilled template field.' },
@@ -137,6 +152,7 @@ const PLACEHOLDER: Pattern[] = [
  * so they are anchored on their own shape instead.
  */
 function compile(p: Pattern): RegExp {
+  if (p.raw) return new RegExp(p.source, 'gi')
   const needsBoundary = /^[a-z]/.test(p.source)
   const endsAlnum = /[a-z0-9)]$/.test(p.source)
   const body =

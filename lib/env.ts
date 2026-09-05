@@ -23,11 +23,19 @@ const serverSchema = z.object({
   GEMINI_EMBEDDING_MODEL: z.string().default('gemini-embedding-001'),
   GROQ_API_KEY: z.string().optional(),
   /**
-   * Drafting and verification, mirroring the flash/pro split ADR-006 relies on:
-   * the grader must be the stronger of the two, or it is not a grader.
+   * Drafting and verification. Measured, not assumed — see ADR-037.
+   *
+   * `gpt-oss-20b` drafted options whose stated risk was "None."; `qwen3.8-27b`
+   * produced three options containing `[INSERT_REFERENCE_NUMBER]` and one whose
+   * entire draft was "N/A". `gpt-oss-120b` is the one that writes text a
+   * regulatory reviewer could use.
+   *
+   * The verifier is deliberately from a different family rather than a larger
+   * member of the same one. A grader that shares the drafter's blind spots
+   * agrees with it, and ADR-006 wants a check, not a chorus.
    */
-  GROQ_MODEL_FAST: z.string().default('openai/gpt-oss-20b'),
-  GROQ_MODEL_STRONG: z.string().default('openai/gpt-oss-120b'),
+  GROQ_MODEL_FAST: z.string().default('openai/gpt-oss-120b'),
+  GROQ_MODEL_STRONG: z.string().default('qwen/qwen3.8-27b'),
   /**
    * 768 dimensions, matching `vector(768)` in 0003_core.sql, and the reason this
    * model rather than the more common all-MiniLM-L6-v2, which is 384. A mismatch

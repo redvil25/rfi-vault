@@ -12,6 +12,7 @@ import {
   retrievePrecedents,
 } from '@/lib/draft/retrieve'
 import type { Precedent } from '@/lib/draft/types'
+import { lintSection } from '@/lib/precheck/lint'
 import { parseRequest } from './parse'
 import { STRATEGIES, type GradedOption, type SuggestOutcome, type SuggestionOption } from './types'
 
@@ -105,6 +106,30 @@ function inStrategyOrder(options: GradedOption[]): GradedOption[] {
   )
 }
 
+/**
+ * Drop options that are not answers.
+ *
+ * Two failures seen from real models, neither of which the schema can catch
+ * because both produce well-formed strings:
+ *
+ *   Placeholders. A draft reading "referencing [INSERT_REFERENCE_NUMBER]" is
+ *   text the pre-submission check would flag as a blocker the moment it were
+ *   pasted into a dossier. Suggesting it would have this product handing a
+ *   writer the exact defect its other feature exists to catch, so Feature 2's
+ *   own lint is the judge here — one implementation, one standard.
+ *
+ *   Non-answers. One model returned an option whose entire draft was "N/A",
+ *   with a paragraph in `risk` explaining that the strategy was unsupported.
+ *   That is a refusal wearing an option's clothes, and it graded 100% for
+ *   groundedness because it asserts nothing.
+ */
+function isUsableDraft(draft: string): boolean {
+  const text = draft.trim()
+  if (text.length < 25) return false
+  if (/^(n\/?a|none|not applicable|no response)/i.test(text)) return false
+  return !lintSection(text).some((f) => f.kind === 'PLACEHOLDER')
+}
+
 /** Two options with the same strategy is a model that ignored the instruction. Keep the first. */
 function dedupe(options: SuggestionOption[]): SuggestionOption[] {
   const seen = new Set<string>()
@@ -123,17 +148,18 @@ export async function suggestResponses(
 ): Promise<SuggestOutcome> {
   const parsed = parseRequest(input.text, input.section)
 
-  // Retrieval is filtered by application section. Without one, precedent would
-  // be drawn from the whole repository and the writer would have no way to see
-  // that the match came from the wrong part of the dossier.
-  if (!parsed.section || !parsed.sectionPart) {
+  // Retrieval narrows by application section. One section when it is known,
+  // the category's own set when it legitimately spans a few — proof of payment
+  // is filed under both Regulatory and Cover Letter, and refusing on that was a
+  // bug, not caution. It refuses only when the category narrows nothing.
+  if (parsed.sectionCandidates.length === 0 || !parsed.sectionPart) {
     return {
       refused: true,
       reason:
-        'The application section could not be determined from this text, and precedent is ' +
+        'The application section could not be narrowed from this text, and precedent is ' +
         'retrieved per section. Choose the section above and run it again — a suggestion built ' +
         'from another section’s precedent would look right and be wrong.',
-      escalateTo: null,
+      escalateTo: escalateTo(parsed.category),
       nearest: [],
       maxSimilarity: null,
       parsed,
@@ -146,10 +172,14 @@ export async function suggestResponses(
       // and a request that is not in the repository cannot match itself.
       considerationId: '',
       considerationText: parsed.text,
-      section: parsed.section,
+      section: parsed.section ?? parsed.sectionCandidates[0],
       sectionPart: parsed.sectionPart,
       memberState: parsed.memberState,
       category: parsed.category,
+      // Only when there is genuinely more than one, so Feature 3's behaviour and
+      // the single-section case stay on the narrower SQL filter.
+      sectionCandidates:
+        parsed.sectionCandidates.length > 1 ? parsed.sectionCandidates : undefined,
     },
     supabase,
   )
@@ -181,7 +211,7 @@ export async function suggestResponses(
   try {
     generation = await generateSuggestions({
       considerationText: parsed.text,
-      section: parsed.section,
+      section: parsed.section ?? parsed.sectionCandidates.join(' or '),
       sectionPart: parsed.sectionPart,
       memberState: parsed.memberState,
       category: parsed.category,
@@ -211,15 +241,16 @@ export async function suggestResponses(
     citations: o.citations.filter((c) => retrievedIds.has(c.considerationId)),
   }))
 
-  const usable = cleaned.filter((o) => o.citations.length > 0)
+  const usable = cleaned.filter((o) => o.citations.length > 0 && isUsableDraft(o.draft))
   if (usable.length === 0) {
     log.warn('suggest.all_citations_invalid', { section: parsed.section })
     return {
       refused: true,
       reason:
-        'Every option came back citing records that were not retrieved, so none of them can be ' +
-        'traced to precedent. They are discarded rather than shown — an uncheckable suggestion ' +
-        'is worse than none.',
+        'No option survived checking. They either cited records that were not retrieved, or ' +
+        'contained placeholder text this repository would flag as a blocker in a real dossier. ' +
+        'They are discarded rather than shown — an uncheckable or unusable suggestion is worse ' +
+        'than none.',
       escalateTo: escalateTo(parsed.category),
       nearest: retrieval.precedents.slice(0, 3),
       maxSimilarity: retrieval.maxSimilarity,

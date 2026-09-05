@@ -99,6 +99,11 @@ export interface ParsedRequest {
   memberState: string | null
   section: string | null
   sectionPart: 'PART_I' | 'PART_II' | null
+  /**
+   * Sections precedent was searched across. One when it is known, several when
+   * the category legitimately spans them, empty when it could not be narrowed.
+   */
+  sectionCandidates: string[]
   category: string
   /** 0–1 from the deterministic classifier. Low means "we are not sure what this is about". */
   categoryConfidence: number

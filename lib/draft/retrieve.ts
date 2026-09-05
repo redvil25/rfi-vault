@@ -28,6 +28,19 @@ export interface DraftTarget {
   sectionPart: 'PART_I' | 'PART_II'
   memberState: string | null
   category: string
+  /**
+   * Search several sections at once instead of one.
+   *
+   * Feature 3 never needs this: a filed consideration knows the section it was
+   * filed under. A pasted request often does not, and many taxonomy categories
+   * legitimately span two or three sections — proof of payment turns up under
+   * both Regulatory and Cover Letter. Guessing one of them retrieves from the
+   * wrong place; refusing outright is worse, because the category is known.
+   *
+   * When set, the section filter is dropped in SQL and applied here against the
+   * candidate set, so the query still narrows by application section part.
+   */
+  sectionCandidates?: string[]
 }
 
 export type RetrievalResult =
@@ -118,7 +131,7 @@ export async function retrievePrecedents(
     query_text: target.considerationText,
     query_embed: toVectorLiteral(embedding),
     match_count: RETRIEVE_CANDIDATES,
-    f_section: target.section,
+    f_section: target.sectionCandidates ? undefined : target.section,
     f_part: target.sectionPart,
     f_approved_only: true,
     rrf_k: serverEnv().RRF_K,
@@ -173,7 +186,10 @@ export async function retrievePrecedents(
   }
 
   const precedents: Precedent[] = []
+  const allowed = target.sectionCandidates ? new Set(target.sectionCandidates) : null
+
   for (const row of (hydrated ?? []) as unknown as HydratedRow[]) {
+    if (allowed && !allowed.has(row.section)) continue
     // A precedent with no response is not a precedent. This is not a filter for
     // tidiness: an open request has nothing to teach the model about answering.
     if (!row.sponsor_response_text?.trim()) continue

@@ -63,6 +63,35 @@ describe('parseRequest — section', () => {
     expect(parseRequest(ITALY_FEE, 'Informed Consent').sectionPart).toBe('PART_II')
   })
 
+  it('searches every section a category is filed under, rather than refusing', () => {
+    // Proof of payment is filed under Regulatory and Cover Letter. Requiring
+    // exactly one refused the commonest request in the corpus at 0.72 confidence.
+    const parsed = parseRequest(ITALY_FEE)
+    expect(parsed.sectionCandidates).toEqual(['Regulatory', 'Cover Letter'])
+    expect(parsed.sectionPart).toBe('PART_I')
+  })
+
+  it('narrows to one when the category attaches to one', () => {
+    const parsed = parseRequest(
+      'The informed consent form has not been provided in the required local language for this site.',
+    )
+    expect(parsed.section).toBe('Informed Consent')
+    expect(parsed.sectionCandidates).toEqual(['Informed Consent'])
+  })
+
+  it('offers no candidates when the category spans the whole dossier', () => {
+    // DOC_MISSING lists nineteen sections: it says nothing about where this
+    // belongs, so the run asks rather than searching everywhere.
+    const parsed = parseRequest(
+      'A required document referenced in the dossier index is absent from the submission package.',
+    )
+    if (parsed.category === 'DOC_MISSING') expect(parsed.sectionCandidates).toEqual([])
+  })
+
+  it('a user hint overrides the candidates entirely', () => {
+    expect(parseRequest(ITALY_FEE, 'Protocol').sectionCandidates).toEqual(['Protocol'])
+  })
+
   it('leaves the section null rather than guessing when nothing resolves', () => {
     const parsed = parseRequest('Health. Please advise on the matter raised previously by the committee.')
     expect(parsed.section).toBeNull()
