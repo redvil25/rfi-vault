@@ -3,6 +3,7 @@
 import { useActionState, useMemo, useState } from 'react'
 import { SEVERITY_LABEL, type Flag, type PrecheckResult, type RulePrecedent } from '@/lib/precheck/types'
 import { MIN_HITS_FOR_RULE, STALE_AFTER_MONTHS } from '@/lib/precheck/rules'
+import { SUBSTANCE_MIN_WORDS } from '@/lib/precheck/topic'
 import { LINT_PATTERN_COUNT } from '@/lib/precheck/lint'
 import { splitDossier } from '@/lib/precheck/split'
 import { precheckAction, type PrecheckState } from './actions'
@@ -307,6 +308,7 @@ function Results({
   const [showCoverage, setShowCoverage] = useState(false)
   const skipped = result.rules.filter((r) => r.outcome === 'SKIPPED')
   const { coverage } = result
+  const allTooShort = result.tooShort.length > 0 && result.flags.length === 0
 
   return (
     <section className="mt-8">
@@ -316,13 +318,33 @@ function Results({
           <DownloadSnapshot result={result} runId={runId} ranFor={ranFor} />
         </div>
         <h2 className="text-base font-semibold">
-          {result.counts.BLOCKER === 0 && result.counts.LIKELY === 0
-            ? 'No blockers and no likely triggers'
-            : `${result.counts.BLOCKER} blocker${result.counts.BLOCKER === 1 ? '' : 's'}, ${
-                result.counts.LIKELY
-              } likely trigger${result.counts.LIKELY === 1 ? '' : 's'}`}
-          {result.counts.WATCH > 0 && `, ${result.counts.WATCH} worth a look`}
+          {allTooShort
+            ? 'Nothing was checked'
+            : result.counts.BLOCKER === 0 && result.counts.LIKELY === 0
+              ? 'No blockers and no likely triggers'
+              : `${result.counts.BLOCKER} blocker${result.counts.BLOCKER === 1 ? '' : 's'}, ${
+                  result.counts.LIKELY
+                } likely trigger${result.counts.LIKELY === 1 ? '' : 's'}`}
+          {!allTooShort && result.counts.WATCH > 0 && `, ${result.counts.WATCH} worth a look`}
         </h2>
+
+        {/*
+          "Nothing found" and "nothing looked at" are different results and must
+          never render the same. A one-word paste used to headline as a clean
+          pass, which is the most dangerous thing this screen could say.
+        */}
+        {result.tooShort.length > 0 && (
+          <p className="mt-1.5 rounded-md border border-border px-3 py-2 text-[13px]">
+            <span className="font-medium">
+              {allTooShort ? 'Too short to assess.' : 'Some sections were too short to assess.'}
+            </span>{' '}
+            {result.tooShort
+              .map((t) => `${t.section} (${t.words} word${t.words === 1 ? '' : 's'})`)
+              .join(', ')}
+            . Mined rules need at least {SUBSTANCE_MIN_WORDS} words of section text.
+            {allTooShort && ' A clean result here means nothing was looked at, not that nothing is wrong.'}
+          </p>
+        )}
         <p className="mt-1 text-[13px] text-muted">
           {ranFor && (
             <>

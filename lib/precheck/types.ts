@@ -145,6 +145,8 @@ export interface Coverage {
 
 export interface PrecheckResult {
   flags: Flag[]
+  /** Sections too short for the mined rules to say anything about. */
+  tooShort: { section: string; words: number }[]
   rules: RuleReport[]
   /** Which corpus scope produced these rules. Stated on screen, never implied. */
   scope: Scope

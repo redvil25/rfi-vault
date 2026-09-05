@@ -49,7 +49,7 @@ Each held-out request is scored against the corpus **as it stood the day before 
 
 | Measure | Value |
 |---|---|
-| Recall overall | **62.4%** (151/242) |
+| Recall overall (upper bound — see below) | **62.4%** (151/242) |
 | — at the exact scope (this MS, this section) | 15.4% (2/13 checks) |
 | — after widening to any Member State | 77.2% (149/193 checks) |
 | — no live rule at any scope | 36 checks, reported as such rather than passed |
@@ -59,6 +59,8 @@ Each held-out request is scored against the corpus **as it stood the day before 
 **Report the two numbers together.** A check that flagged every theme scores 100% recall; 1.8 themes per section is what this recall cost. Recall on its own is not a result.
 
 **The false-positive rate is not computable, and the deck must not carry one.** The corpus holds only requests that *were* raised — sections submitted that drew no request were never recorded — so there is no negative class against which precision, specificity or a false-positive rate could be measured. Naming that limit is the honest version of this slide, and it converts into a concrete ask for a real deployment: record every section checked and whether a request followed.
+
+**This is an upper bound, not the shipped number.** The product gates every mined rule on the dossier text in front of the writer — a section must be substantial enough to assess, and must not already address the theme — and the corpus holds no dossier text to replay that gate against. Only the requests themselves survive, not the drafts they were raised on. Gating can only lower recall, never raise it, so the shipped figure sits at or below 62.4%. Making it exactly measurable needs the same data-collection change as the false-positive rate.
 
 The exact-scope figure is the interesting one for a buyer. It says the narrow claim — "this is what Italy asks about this section" — is supportable on only 13 of 242 checks at this corpus size, and that the recall comes from the wider scope. The product states which scope it used on every result, so the user is never shown the wide answer as if it were the narrow one.
 

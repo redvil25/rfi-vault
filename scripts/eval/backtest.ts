@@ -158,6 +158,9 @@ async function main() {
   const meanFlags = flagsPerCheck.reduce((a, b) => a + b, 0) / flagsPerCheck.length
 
   console.log('MINED RULES (time-travelled, 12-month staleness, product scope ladder)')
+  console.log('  NOTE: an upper bound. The shipped check also gates each rule on the dossier')
+  console.log('        text — substance, then topic — and history holds no dossier text to')
+  console.log('        replay that against. Gating can only lower recall, never raise it.')
   console.log(`  Recall overall         ${(recall * 100).toFixed(1)}%  (${caught}/${holdout.length})`)
   console.log(
     `    at exact scope       ${stats.EXACT.used > 0 ? ((stats.EXACT.caught / stats.EXACT.used) * 100).toFixed(1) : '—'}%  (${stats.EXACT.caught}/${stats.EXACT.used} checks)`,

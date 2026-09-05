@@ -5,6 +5,7 @@ import { CATEGORY_BY_ID, MEMBER_STATE_BY_CODE } from '@/lib/domain/taxonomy'
 import { classifyConsideration } from '@/lib/ingest/classify'
 import { lintSection } from './lint'
 import { checkConsistency } from './consistency'
+import { absenceSentence, isSubstantive, topicSkipReason, wordCount } from './topic'
 import {
   describeRule,
   fixFor,
@@ -259,20 +260,42 @@ export async function runPrecheck(
       })
     }
 
-    // ---- 2. values that must agree across sections ------------------------
+    // ---- mined rules, gated on the text in front of the writer ------------
+    //
+    // A mined rule describes what a Member State asks about a section. On its
+    // own that says nothing about *this* dossier, and firing it unconditionally
+    // returned Italy's fee themes for any text pasted into Regulatory — the
+    // word "health" included. Two gates make the flag a statement about the
+    // document rather than about the corpus: the section has to be substantial
+    // enough to assess, and it must not already address the theme.
     const sectionRules = mined.filter((r) => r.section === section).sort((a, b) => b.hits - a.hits)
-    const live = sectionRules.filter(isLive).slice(0, RULES_PER_SECTION)
+    const applicable = sectionRules.filter(
+      (r) => isLive(r) && topicSkipReason(text, r.category) === null,
+    )
+    const live = applicable.slice(0, RULES_PER_SECTION)
 
     for (const rule of sectionRules) {
       const key = `${rule.category}::${rule.section}`
       const shown = live.includes(rule)
+      const gated = isLive(rule) ? topicSkipReason(text, rule.category) : null
 
       rules.push({
         key: `${key}::${rule.memberState ?? 'ALL'}`,
         label: rule.label,
         section,
-        outcome: shown ? 'FLAGGED' : isLive(rule) ? 'CLEAR' : 'SKIPPED',
-        note: isLive(rule) ? describeRule(rule) : skipReason(rule),
+        // A rule held back by a gate is CLEAR when the text addresses it, and
+        // SKIPPED when the text was too thin to judge. The two are different
+        // and a reader must be able to tell them apart.
+        outcome: shown
+          ? 'FLAGGED'
+          : !isLive(rule)
+            ? 'SKIPPED'
+            : gated === null
+              ? 'CLEAR'
+              : isSubstantive(text)
+                ? 'CLEAR'
+                : 'SKIPPED',
+        note: !isLive(rule) ? skipReason(rule) : (gated ?? describeRule(rule)),
       })
 
       if (!shown) continue
@@ -283,7 +306,7 @@ export async function runPrecheck(
         severity: severityForRule(rule),
         section,
         title: rule.label,
-        detail: describeRule(rule),
+        detail: `${absenceSentence(rule.category)} ${describeRule(rule)}`,
         lint: null,
         rule,
         precedents: rulePrecedents,
@@ -332,6 +355,9 @@ export async function runPrecheck(
   return {
     flags,
     rules,
+    tooShort: sections
+      .filter((s) => !isSubstantive(s.text))
+      .map((s) => ({ section: s.section, words: wordCount(s.text) })),
     scope,
     coverage: coverageOf(mined, input.memberStates),
     counts,

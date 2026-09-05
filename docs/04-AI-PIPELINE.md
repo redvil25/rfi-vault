@@ -147,6 +147,8 @@ Recall overall         62.4%  (151/242)
 Themes surfaced        1.8 per section checked
 ```
 
+**This is an upper bound.** The shipped check also gates each mined rule on the dossier text — see §3.4 — and history holds no dossier text to replay that against. Gating only lowers recall.
+
 **Never quote the recall on its own.** A check that flagged every theme would score 100%; "themes surfaced" is what that recall cost, and the two belong in the same sentence.
 
 **The false-positive rate is not computable and must not be estimated.** The repository holds only requests that *were* raised; sections submitted that drew no request were never recorded, so there is no negative class. Making that half computable is a data-collection change in a real deployment — record every section checked and whether a request followed — not a modelling one.
