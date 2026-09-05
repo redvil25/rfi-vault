@@ -78,14 +78,37 @@ async function extractor(): Promise<FeatureExtractor> {
  * the default: correctness everywhere, speed where it is available.
  */
 async function load(model: string): Promise<FeatureExtractor> {
-  const { pipeline } = await import('@huggingface/transformers')
+  let pipeline: (
+    task: string,
+    model: string,
+    options?: { device: string },
+  ) => Promise<FeatureExtractor>
+
   try {
-    return (await pipeline('feature-extraction', model)) as unknown as FeatureExtractor
+    ;({ pipeline } = (await import('@huggingface/transformers')) as unknown as {
+      pipeline: typeof pipeline
+    })
+  } catch (err) {
+    // The import itself, not the pipeline. onnxruntime-node dlopens
+    // libonnxruntime.so.1, so a deployment missing that file fails here — and
+    // the first version of this fallback wrapped only the pipeline call, one
+    // line too late to catch anything.
+    throw new Error(
+      'The local embedding model could not be loaded: ' +
+        `${err instanceof Error ? err.message : String(err)}. ` +
+        'If this says libonnxruntime.so.1 is missing, the ONNX runtime binaries were not ' +
+        'shipped with the deployment — see outputFileTracingIncludes in next.config.ts. ' +
+        'Setting EMBEDDING_PROVIDER=gemini avoids the native dependency entirely, but the ' +
+        'corpus must then be re-embedded with `npm run embed`.',
+      { cause: err },
+    )
+  }
+
+  try {
+    return await pipeline('feature-extraction', model)
   } catch (err) {
     log.warn('ai.local_embedder_native_failed', { model }, err)
-    return (await pipeline('feature-extraction', model, {
-      device: 'wasm',
-    })) as unknown as FeatureExtractor
+    return await pipeline('feature-extraction', model, { device: 'wasm' })
   }
 }
 

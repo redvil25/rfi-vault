@@ -64,14 +64,27 @@ const nextConfig: NextConfig = {
   // Do not advertise the framework.
   poweredByHeader: false,
 
-  // There is no outputFileTracingIncludes any more: it existed solely to carry
-  // the Tesseract language data, and dropping OCR (ADR-021) removed both the
-  // 5 MB asset and the two native packages that came with it.
   // unpdf ships WASM and worker assets; @huggingface/transformers loads ONNX
   // runtimes and model weights at runtime. Neither survives being bundled into
   // a chunk, and the embedding model additionally needs its native or WASM
   // backend resolvable from node_modules rather than from a trace.
   serverExternalPackages: ["unpdf", "@huggingface/transformers", "onnxruntime-node"],
+
+  // onnxruntime-node loads libonnxruntime.so.1 by path at runtime, and nothing
+  // in the source refers to it, so file tracing cannot see it and leaves it
+  // behind. The symptom is only visible in production: importing
+  // @huggingface/transformers throws "libonnxruntime.so.1: cannot open shared
+  // object file", which takes every embedding path down while the rest of the
+  // page keeps working.
+  //
+  // Linux only — the darwin and win32 binaries in that package are another
+  // 160 MB and no function will ever load them.
+  outputFileTracingIncludes: {
+    "/search": ["./node_modules/onnxruntime-node/bin/napi-v6/linux/**"],
+    "/suggest": ["./node_modules/onnxruntime-node/bin/napi-v6/linux/**"],
+    "/report-check": ["./node_modules/onnxruntime-node/bin/napi-v6/linux/**"],
+    "/rfi/[id]": ["./node_modules/onnxruntime-node/bin/napi-v6/linux/**"],
+  },
 
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
