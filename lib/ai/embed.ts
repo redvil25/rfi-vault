@@ -60,6 +60,17 @@ async function embedBatch(
 ): Promise<EmbedResult> {
   if (!remoteEmbeddings()) return embedBatchLocally(values, purpose)
 
+  // Declared 'gemini' with no usable key is a misconfiguration, not a reason to
+  // quietly fall back: falling back would embed this query in a different space
+  // from the corpus and return confident nonsense.
+  if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
+    throw new Error(
+      'EMBEDDING_PROVIDER is "gemini" but GOOGLE_GENERATIVE_AI_API_KEY is not set. Set the key, ' +
+        'or set EMBEDDING_PROVIDER=local and re-run `npm run embed` so the corpus and the query ' +
+        'are embedded by the same model.',
+    )
+  }
+
   const { embedding: model, embeddingDim } = models()
   const started = performance.now()
 

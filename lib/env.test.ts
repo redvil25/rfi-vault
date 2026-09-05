@@ -19,6 +19,7 @@ const KEYS = [
   'GOOGLE_GENERATIVE_AI_API_KEY',
   'SUPABASE_SERVICE_ROLE_KEY',
   'LOCAL_EMBEDDING_MODEL',
+  'EMBEDDING_PROVIDER',
 ] as const
 
 const saved = new Map<string, string | undefined>()
@@ -72,6 +73,20 @@ describe('a blank variable is the same as an unset one', () => {
     set('RRF_K', '20')
     expect(serverEnv().EMBEDDING_DIM).toBe(384)
     expect(serverEnv().RRF_K).toBe(20)
+  })
+
+  it('defaults the embedder to local, whatever keys happen to be present', () => {
+    // The corpus is embedded locally. Keying this off "is a Google key present"
+    // meant adding one for generation silently re-pointed query embedding at a
+    // different vector space, with no error anywhere.
+    set('EMBEDDING_PROVIDER', '')
+    set('GOOGLE_GENERATIVE_AI_API_KEY', 'a-real-looking-google-key-000000')
+    expect(serverEnv().EMBEDDING_PROVIDER).toBe('local')
+  })
+
+  it('rejects an embedder nobody implements', () => {
+    set('EMBEDDING_PROVIDER', 'openai')
+    expect(() => serverEnv()).toThrow()
   })
 
   it('still rejects a value that is present and wrong', () => {

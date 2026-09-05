@@ -67,6 +67,18 @@ const serverSchema = z.object({
    * model rather than the more common all-MiniLM-L6-v2, which is 384. A mismatch
    * is not a soft failure — Postgres rejects the insert.
    */
+  /**
+   * Which embedder produced the corpus, and therefore which must embed queries.
+   *
+   * Explicit, and never inferred from whether a key happens to be present. The
+   * stored vectors came from one model; a query embedded by a different one
+   * lands in a different vector space, and the cosine distance between them is
+   * noise that looks exactly like a working retriever returning poor results.
+   *
+   * Changing this requires re-running `npm run embed`. There is no arrangement
+   * in which the two may differ.
+   */
+  EMBEDDING_PROVIDER: z.preprocess(blankAsUnset, z.enum(['local', 'gemini']).default('local')),
   LOCAL_EMBEDDING_MODEL: textWithDefault('Xenova/all-mpnet-base-v2'),
   EMBEDDING_DIM: positiveInt(768),
   RRF_K: positiveInt(60),
@@ -130,9 +142,24 @@ export function embeddingsEnabled(): boolean {
   return true
 }
 
-/** True when embeddings come from Gemini rather than from the local model. */
+/**
+ * True when embeddings come from Gemini rather than from the local model.
+ *
+ * Reads the declared provider, never the incidental presence of a key. Keying
+ * this off "is there a Google key" meant that adding one — for generation, say —
+ * silently re-pointed query embedding at a different vector space from the one
+ * the corpus was built in, and produced meaningless similarity scores with no
+ * error anywhere.
+ */
 export function remoteEmbeddings(): boolean {
-  return usable(process.env.GOOGLE_GENERATIVE_AI_API_KEY)
+  return serverEnv().EMBEDDING_PROVIDER === 'gemini'
+}
+
+/** Names the embedder in use, for telemetry and for the verification scripts. */
+export function embeddingProviderName(): string {
+  return remoteEmbeddings()
+    ? serverEnv().GEMINI_EMBEDDING_MODEL
+    : `local:${serverEnv().LOCAL_EMBEDDING_MODEL}`
 }
 
 export function requireServiceRoleKey(): string {
