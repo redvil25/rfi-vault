@@ -50,8 +50,7 @@ async function extractor(): Promise<FeatureExtractor> {
   if (!pipelinePromise) {
     const model = serverEnv().LOCAL_EMBEDDING_MODEL
     log.info('ai.local_embedder_loading', { model })
-    pipelinePromise = import('@huggingface/transformers')
-      .then(({ pipeline }) => pipeline('feature-extraction', model))
+    pipelinePromise = load(model)
       .then((p) => {
         log.info('ai.local_embedder_ready', { model })
         return p
@@ -64,6 +63,30 @@ async function extractor(): Promise<FeatureExtractor> {
       })
   }
   return pipelinePromise
+}
+
+/**
+ * Native backend first, WASM second.
+ *
+ * `onnxruntime-node` is faster and is what a laptop and CI should use, but it
+ * needs native binaries fetched by an install script — and a host that blocks
+ * install scripts (Vercel does) leaves the package present and unusable. The
+ * symptom was not an error at deploy: it was "embedding the query failed" on
+ * the live search page, with everything green locally.
+ *
+ * WASM needs no binaries and runs anywhere, so it is the fallback rather than
+ * the default: correctness everywhere, speed where it is available.
+ */
+async function load(model: string): Promise<FeatureExtractor> {
+  const { pipeline } = await import('@huggingface/transformers')
+  try {
+    return (await pipeline('feature-extraction', model)) as unknown as FeatureExtractor
+  } catch (err) {
+    log.warn('ai.local_embedder_native_failed', { model }, err)
+    return (await pipeline('feature-extraction', model, {
+      device: 'wasm',
+    })) as unknown as FeatureExtractor
+  }
 }
 
 /**

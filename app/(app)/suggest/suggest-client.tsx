@@ -9,7 +9,9 @@ import {
   type ParsedRequest,
   type SuggestOutcome,
 } from '@/lib/suggest/types'
-import { suggestAction, type SuggestState } from './actions'
+import { MAX_UPLOAD_BYTES, RFI_BUCKET } from '@/lib/ingest/constants'
+import { createClient as createBrowserClient } from '@/lib/db/browser'
+import { createRequestUploadAction, suggestAction, type SuggestState } from './actions'
 
 const TEAM_LABEL: Record<string, string> = {
   RA_CLINICAL: 'RA Clinical',
@@ -18,10 +20,6 @@ const TEAM_LABEL: Record<string, string> = {
   EU_SUBMISSION_HUB: 'the EU Submission Hub',
   ADMIN: 'an administrator',
 }
-
-const EXAMPLE =
-  'IT - No payment receipt has been identified for this submission. Please submit the proof ' +
-  'of payment together with the reference number used for the transfer.'
 
 function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) {
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
@@ -294,28 +292,91 @@ function Outcome({ outcome }: { outcome: SuggestOutcome }) {
 
 export function SuggestClient({ sections }: { sections: string[] }) {
   const [state, formAction, pending] = useActionState<SuggestState, FormData>(suggestAction, {})
-  const [text, setText] = useState('')
+
+  const [file, setFile] = useState<File | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+  const [uploaded, setUploaded] = useState<{ storageKey: string; fileName: string } | null>(null)
+
+  /**
+   * Straight to Storage on a one-shot signed URL, so the bytes never cross the
+   * application server and a real CTIS export is not capped by the host's
+   * request-body limit.
+   */
+  async function choose(picked: File | null) {
+    setUploadError(null)
+    setUploaded(null)
+    setFile(picked)
+    if (!picked) return
+
+    if (picked.size > MAX_UPLOAD_BYTES) {
+      setUploadError(`That file is ${(picked.size / 1024 / 1024).toFixed(1)} MB. The limit is 20 MB.`)
+      return
+    }
+    if (!picked.name.toLowerCase().endsWith('.pdf')) {
+      setUploadError('Upload the request as a PDF.')
+      return
+    }
+
+    setUploading(true)
+    try {
+      const target = await createRequestUploadAction(picked.name)
+      if (target.error || !target.storageKey || !target.token) {
+        setUploadError(target.error ?? 'The upload could not be prepared.')
+        return
+      }
+      const supabase = createBrowserClient()
+      const { error } = await supabase.storage
+        .from(RFI_BUCKET)
+        .uploadToSignedUrl(target.storageKey, target.token, picked, {
+          contentType: 'application/pdf',
+        })
+      if (error) {
+        setUploadError(`Upload failed: ${error.message}`)
+        return
+      }
+      setUploaded({ storageKey: target.storageKey, fileName: picked.name })
+    } finally {
+      setUploading(false)
+    }
+  }
 
   return (
     <>
       <form action={formAction} className="mt-6">
-        <label
-          htmlFor="text"
-          className="mb-1 block text-[11px] font-medium tracking-wide text-muted uppercase"
-        >
-          The request for information
-        </label>
-        <textarea
-          id="text"
-          name="text"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          rows={6}
-          placeholder="Paste the consideration exactly as the regulator wrote it…"
-          className="w-full rounded-md border border-border bg-surface px-3 py-2 font-sans text-sm"
-        />
+        <input type="hidden" name="storageKey" value={uploaded?.storageKey ?? ''} />
+        <input type="hidden" name="fileName" value={uploaded?.fileName ?? ''} />
 
-        <div className="mt-3 flex flex-wrap items-end gap-4">
+        <label
+          htmlFor="request"
+          className="block cursor-pointer rounded-lg border border-dashed border-border p-6 text-center hover:bg-accent-soft"
+        >
+          <span className="block text-sm font-medium">
+            {file ? file.name : 'Choose the request for information (PDF)'}
+          </span>
+          <span className="mt-1 block text-[13px] text-muted">
+            {uploading
+              ? 'Uploading…'
+              : uploaded
+                ? 'Uploaded. Suggest responses below.'
+                : 'Up to 20 MB. It is read for this run and deleted immediately afterwards — no copy is kept.'}
+          </span>
+          <input
+            id="request"
+            type="file"
+            accept="application/pdf,.pdf"
+            className="sr-only"
+            onChange={(e) => void choose(e.target.files?.[0] ?? null)}
+          />
+        </label>
+
+        {uploadError && (
+          <p role="alert" className="mt-3 rounded-md bg-risk-soft px-3.5 py-2.5 text-sm text-risk">
+            {uploadError}
+          </p>
+        )}
+
+        <div className="mt-4 flex flex-wrap items-end gap-4">
           <div>
             <label
               htmlFor="section"
@@ -328,7 +389,7 @@ export function SuggestClient({ sections }: { sections: string[] }) {
               name="section"
               className="rounded-md border border-border bg-surface px-2.5 py-1.5 text-sm"
             >
-              <option value="">Detect from the text</option>
+              <option value="">Detect from the document</option>
               {sections.map((s) => (
                 <option key={s} value={s}>
                   {s}
@@ -339,24 +400,17 @@ export function SuggestClient({ sections }: { sections: string[] }) {
 
           <button
             type="submit"
-            disabled={pending}
+            disabled={pending || uploading || !uploaded}
             className="rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-white disabled:opacity-60"
           >
             {pending ? 'Searching precedent…' : 'Suggest responses'}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setText(EXAMPLE)}
-            className="text-xs text-accent hover:underline"
-          >
-            Use an example
           </button>
         </div>
 
         <p className="mt-2 text-[12px] text-muted">
           Precedent is retrieved per application section. Leaving this on “detect” works when the
-          text is clearly about one section; where it is not, the run refuses rather than guessing.
+          request is clearly about one section, or about a category filed under a few; where it
+          narrows to nothing, the run refuses rather than guessing.
         </p>
 
         {state.error && (
@@ -366,7 +420,18 @@ export function SuggestClient({ sections }: { sections: string[] }) {
         )}
       </form>
 
-      {state.outcome && <Outcome outcome={state.outcome} />}
+      {state.outcome && (
+        <>
+          {state.fileName && (
+            <p className="mt-4 text-[13px] text-muted">
+              {state.fileName}
+              {state.pageCount != null &&
+                ` · ${state.pageCount} page${state.pageCount === 1 ? '' : 's'} read`}
+            </p>
+          )}
+          <Outcome outcome={state.outcome} />
+        </>
+      )}
     </>
   )
 }

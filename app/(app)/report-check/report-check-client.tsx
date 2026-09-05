@@ -5,8 +5,13 @@ import { SEVERITY_LABEL, type Flag, type PrecheckResult, type RulePrecedent } fr
 import { MIN_HITS_FOR_RULE, STALE_AFTER_MONTHS } from '@/lib/precheck/rules'
 import { SUBSTANCE_MIN_WORDS } from '@/lib/precheck/topic'
 import { LINT_PATTERN_COUNT } from '@/lib/precheck/lint'
-import { splitDossier } from '@/lib/precheck/split'
-import { precheckAction, type PrecheckState } from './actions'
+import { MAX_UPLOAD_BYTES, RFI_BUCKET } from '@/lib/ingest/constants'
+import { createClient as createBrowserClient } from '@/lib/db/browser'
+import {
+  checkReportAction,
+  createReportUploadAction,
+  type ReportCheckState,
+} from './actions'
 
 const SUBMISSION_TYPES: [string, string][] = [
   ['INITIAL', 'Initial application'],
@@ -228,7 +233,7 @@ function FlagCard({ flag }: { flag: Flag }) {
 function snapshotOf(
   result: PrecheckResult,
   runId: string | undefined,
-  ranFor: PrecheckState['ranFor'],
+  ranFor: ReportCheckState['ranFor'],
 ) {
   return {
     snapshot_version: 1,
@@ -278,7 +283,7 @@ function DownloadSnapshot({
 }: {
   result: PrecheckResult
   runId?: string
-  ranFor: PrecheckState['ranFor']
+  ranFor: ReportCheckState['ranFor']
 }) {
   const href = useMemo(() => {
     const json = JSON.stringify(snapshotOf(result, runId, ranFor), null, 2)
@@ -300,10 +305,14 @@ function Results({
   result,
   runId,
   ranFor,
+  fileName,
+  unrecognised,
 }: {
   result: PrecheckResult
   runId?: string
-  ranFor?: PrecheckState['ranFor']
+  ranFor?: ReportCheckState['ranFor']
+  fileName?: string
+  unrecognised: string[]
 }) {
   const [showCoverage, setShowCoverage] = useState(false)
   const skipped = result.rules.filter((r) => r.outcome === 'SKIPPED')
@@ -345,6 +354,13 @@ function Results({
             {allTooShort && ' A clean result here means nothing was looked at, not that nothing is wrong.'}
           </p>
         )}
+        {fileName && (
+          <p className="mt-1 text-[13px] text-muted">
+            {fileName}
+            {result.pageCount !== null && ` · ${result.pageCount} page${result.pageCount === 1 ? '' : 's'} read`}
+            {result.completeness && ` · ${result.completeness.model}`}
+          </p>
+        )}
         <p className="mt-1 text-[13px] text-muted">
           {ranFor && (
             <>
@@ -371,6 +387,87 @@ function Results({
           without that, any percentage would be a number with nothing behind it.
         </p>
       </div>
+
+      {unrecognised.length > 0 && (
+        <p className="mt-3 rounded-md border border-border px-3.5 py-2.5 text-[13px]">
+          <span className="font-medium">
+            {unrecognised.length} part{unrecognised.length === 1 ? '' : 's'} of the document
+            {unrecognised.length === 1 ? ' was' : ' were'} not checked
+          </span>{' '}
+          — the heading does not map onto an application section, and filing it under the nearest
+          one would check it against the wrong rules: {unrecognised.slice(0, 6).join(', ')}
+          {unrecognised.length > 6 && `, and ${unrecognised.length - 6} more`}.
+        </p>
+      )}
+
+      {/* ---- What the model found the document does not say ---- */}
+      {result.completeness && result.completeness.missing.length > 0 && (
+        <div className="mt-3 rounded-lg border border-border bg-surface p-4">
+          <h3 className="text-sm font-semibold">
+            {result.completeness.missing.length} thing
+            {result.completeness.missing.length === 1 ? '' : 's'} the report does not appear to
+            address
+          </h3>
+          <p className="mt-1 text-[13px] text-muted">
+            Each one was asked for in a past request against this section. Nothing here is a
+            judgement about what a clinical report ought to contain — only which of those
+            specific questions this document would not answer.
+          </p>
+          <ul className="mt-3 space-y-2.5">
+            {result.completeness.missing.map((m) => (
+              <li key={m.item} className="rounded-md border border-border p-3">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <span className="text-[13px] font-medium">{m.item}</span>
+                  <span className="text-[11px] text-muted">
+                    {m.section} · {m.citations.length} past request
+                    {m.citations.length === 1 ? '' : 's'}
+                  </span>
+                </div>
+                <p className="mt-1 text-[13px] leading-relaxed">{m.why}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {result.completeness && result.completeness.addressed.length > 0 && (
+        <details className="mt-3 rounded-lg border border-border p-4">
+          <summary className="cursor-pointer text-sm font-medium">
+            {result.completeness.addressed.length} past request
+            {result.completeness.addressed.length === 1 ? '' : 's'} the report already answers
+          </summary>
+          <ul className="mt-2 space-y-1.5 text-[13px]">
+            {result.completeness.addressed.map((a) => (
+              <li key={a.item}>
+                <span className="font-medium">{a.item}</span>{' '}
+                <span className="text-muted">— {a.whereFound}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
+      {result.completenessUnavailable && (
+        <p className="mt-3 rounded-md border border-border px-3.5 py-2.5 text-[13px]">
+          <span className="font-medium">The report was not read for unmentioned gaps.</span>{' '}
+          {result.completenessUnavailable}. The deterministic findings above stand on their own.
+        </p>
+      )}
+
+      {result.completeness && result.completeness.openQuestions.length > 0 && (
+        <div className="mt-3 rounded-lg border border-border p-4">
+          <h3 className="text-sm font-semibold">The extraction could not settle these</h3>
+          <p className="mt-1 text-[13px] text-muted">
+            An extraction gap is not a dossier gap — a table that did not survive the PDF, or an
+            annex that was not supplied. Check them by eye.
+          </p>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-[13px]">
+            {result.completeness.openQuestions.map((q) => (
+              <li key={q}>{q}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* ---- Coverage: what this answer rests on ---- */}
       <div className="mt-3 rounded-lg border border-border p-4">
@@ -445,42 +542,36 @@ function Results({
   )
 }
 
-export function PrecheckClient({
-  sections,
+export function ReportCheckClient({
   memberStates,
   defaultMemberState,
 }: {
-  sections: string[]
   memberStates: { code: string; name: string }[]
   defaultMemberState: string | null
 }) {
-  const [state, formAction, pending] = useActionState<PrecheckState, FormData>(precheckAction, {})
+  const [state, formAction, pending] = useActionState<ReportCheckState, FormData>(
+    checkReportAction,
+    {},
+  )
 
   const [submissionType, setSubmissionType] = useState('SUBSTANTIAL_MODIFICATION')
   const [selectedStates, setSelectedStates] = useState<string[]>(
     defaultMemberState ? [defaultMemberState] : ['IT'],
   )
-  const [rows, setRows] = useState<{ section: string; text: string }[]>([
-    { section: 'Regulatory', text: '' },
-  ])
-
-  // Whole-dossier paste. A writer has a document, not eleven boxes, and typing
-  // into eleven boxes is the single biggest reason this screen would go unused.
-  const [dossier, setDossier] = useState('')
-  const [split, setSplit] = useState<ReturnType<typeof splitDossier> | null>(null)
-
-  function applyDossier() {
-    const result = splitDossier(dossier)
-    setSplit(result)
-    if (result.recognised.length > 0) setRows(result.recognised)
-  }
+  const [file, setFile] = useState<File | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+  const [uploaded, setUploaded] = useState<{ storageKey: string; fileName: string } | null>(null)
 
   const payload = useMemo(
-    () => JSON.stringify({ submissionType, memberStates: selectedStates, sections: rows }),
-    [submissionType, selectedStates, rows],
+    () =>
+      JSON.stringify({
+        storageKey: uploaded?.storageKey ?? '',
+        submissionType,
+        memberStates: selectedStates,
+      }),
+    [uploaded, submissionType, selectedStates],
   )
-
-  const unused = sections.filter((s) => !rows.some((r) => r.section === s))
 
   function toggleState(code: string) {
     setSelectedStates((prev) =>
@@ -488,12 +579,86 @@ export function PrecheckClient({
     )
   }
 
+  /**
+   * Straight to Storage on a one-shot signed URL.
+   *
+   * The bytes never touch the application server, which is what keeps a real
+   * clinical report clear of the host's 4.5 MB request-body cap.
+   */
+  async function choose(picked: File | null) {
+    setUploadError(null)
+    setUploaded(null)
+    setFile(picked)
+    if (!picked) return
+
+    if (picked.size > MAX_UPLOAD_BYTES) {
+      setUploadError(`That file is ${(picked.size / 1024 / 1024).toFixed(1)} MB. The limit is 20 MB.`)
+      return
+    }
+    if (!picked.name.toLowerCase().endsWith('.pdf')) {
+      setUploadError('Upload the report as a PDF.')
+      return
+    }
+
+    setUploading(true)
+    try {
+      const target = await createReportUploadAction(picked.name)
+      if (target.error || !target.storageKey || !target.token) {
+        setUploadError(target.error ?? 'The upload could not be prepared.')
+        return
+      }
+      const supabase = createBrowserClient()
+      const { error } = await supabase.storage
+        .from(RFI_BUCKET)
+        .uploadToSignedUrl(target.storageKey, target.token, picked, {
+          contentType: 'application/pdf',
+        })
+      if (error) {
+        setUploadError(`Upload failed: ${error.message}`)
+        return
+      }
+      setUploaded({ storageKey: target.storageKey, fileName: picked.name })
+    } finally {
+      setUploading(false)
+    }
+  }
+
   return (
     <>
       <form action={formAction} className="mt-6">
         <input type="hidden" name="payload" value={payload} />
+        <input type="hidden" name="fileName" value={uploaded?.fileName ?? ''} />
 
-        <div className="flex flex-wrap items-end gap-4">
+        <label
+          htmlFor="report"
+          className="block cursor-pointer rounded-lg border border-dashed border-border p-6 text-center hover:bg-accent-soft"
+        >
+          <span className="block text-sm font-medium">
+            {file ? file.name : 'Choose the clinical document (PDF)'}
+          </span>
+          <span className="mt-1 block text-[13px] text-muted">
+            {uploading
+              ? 'Uploading…'
+              : uploaded
+                ? 'Uploaded. Run the check below.'
+                : 'Up to 20 MB. It is read for this check and deleted immediately afterwards — no copy is kept.'}
+          </span>
+          <input
+            id="report"
+            type="file"
+            accept="application/pdf,.pdf"
+            className="sr-only"
+            onChange={(e) => void choose(e.target.files?.[0] ?? null)}
+          />
+        </label>
+
+        {uploadError && (
+          <p role="alert" className="mt-3 rounded-md bg-risk-soft px-3.5 py-2.5 text-sm text-risk">
+            {uploadError}
+          </p>
+        )}
+
+        <div className="mt-4 flex flex-wrap items-end gap-4">
           <div>
             <label
               htmlFor="submissionType"
@@ -543,128 +708,13 @@ export function PrecheckClient({
           </div>
         </fieldset>
 
-        {/* ---- Paste the whole dossier and let it section itself ---- */}
-        <details className="mt-5 rounded-lg border border-border p-3">
-          <summary className="cursor-pointer text-sm font-medium">
-            Paste a whole dossier instead
-          </summary>
-          <p className="mt-2 text-[13px] text-muted">
-            Split on the headings the document already carries. A heading that does not map onto
-            the taxonomy is listed below and left out of the check rather than filed under the
-            nearest-looking section.
-          </p>
-          <textarea
-            aria-label="Whole dossier text"
-            value={dossier}
-            onChange={(e) => setDossier(e.target.value)}
-            rows={8}
-            placeholder={`Cover Letter\nThis substantial modification concerns…\n\n1. Protocol\n…`}
-            className="mt-2.5 w-full rounded-md border border-border bg-surface px-3 py-2 font-sans text-sm"
-          />
-          <div className="mt-2 flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={applyDossier}
-              disabled={!dossier.trim()}
-              className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-accent-soft disabled:opacity-50"
-            >
-              Split into sections
-            </button>
-            {split && (
-              <span className="text-[13px] text-muted">
-                {split.recognised.length} section{split.recognised.length === 1 ? '' : 's'}{' '}
-                recognised
-                {split.unrecognised.length > 0 &&
-                  `, ${split.unrecognised.length} block${
-                    split.unrecognised.length === 1 ? '' : 's'
-                  } left out`}
-                .
-              </span>
-            )}
-          </div>
-          {split && split.unrecognised.length > 0 && (
-            <ul className="mt-2 space-y-0.5 rounded border border-border px-3 py-2 text-[12px] text-muted">
-              <li className="font-medium text-foreground">Not checked — heading not recognised:</li>
-              {split.unrecognised.map((h) => (
-                <li key={h} className="font-mono">
-                  {h}
-                </li>
-              ))}
-            </ul>
-          )}
-          {split && split.recognised.length === 0 && (
-            <p className="mt-2 text-[13px] text-muted">
-              No heading in that text maps onto an application section, so nothing was filled in.
-              Use the boxes below instead.
-            </p>
-          )}
-        </details>
-
-        <div className="mt-5 space-y-4">
-          {rows.map((row, i) => (
-            <div key={i} className="rounded-lg border border-border p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <select
-                  aria-label="Application section"
-                  value={row.section}
-                  onChange={(e) =>
-                    setRows((prev) =>
-                      prev.map((r, j) => (j === i ? { ...r, section: e.target.value } : r)),
-                    )
-                  }
-                  className="rounded-md border border-border bg-surface px-2.5 py-1.5 text-sm"
-                >
-                  {sections.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-                {rows.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => setRows((prev) => prev.filter((_, j) => j !== i))}
-                    className="text-xs text-muted hover:underline"
-                  >
-                    Remove
-                  </button>
-                )}
-              </div>
-
-              <textarea
-                aria-label={`Text of the ${row.section} section`}
-                value={row.text}
-                onChange={(e) =>
-                  setRows((prev) =>
-                    prev.map((r, j) => (j === i ? { ...r, text: e.target.value } : r)),
-                  )
-                }
-                rows={5}
-                placeholder="Paste the section text as it will be filed…"
-                className="mt-2.5 w-full rounded-md border border-border bg-surface px-3 py-2 font-sans text-sm"
-              />
-            </div>
-          ))}
-        </div>
-
-        <div className="mt-3 flex flex-wrap items-center gap-3">
-          {unused.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setRows((prev) => [...prev, { section: unused[0], text: '' }])}
-              className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-accent-soft"
-            >
-              Add a section
-            </button>
-          )}
-          <button
-            type="submit"
-            disabled={pending}
-            className="rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-white disabled:opacity-60"
-          >
-            {pending ? 'Checking…' : 'Run the check'}
-          </button>
-        </div>
+        <button
+          type="submit"
+          disabled={pending || uploading || !uploaded}
+          className="mt-4 rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-white disabled:opacity-60"
+        >
+          {pending ? 'Checking…' : 'Check the report'}
+        </button>
 
         {state.error && (
           <p role="alert" className="mt-4 rounded-md bg-risk-soft px-3.5 py-2.5 text-sm text-risk">
@@ -674,7 +724,13 @@ export function PrecheckClient({
       </form>
 
       {state.result && (
-        <Results result={state.result} runId={state.runId} ranFor={state.ranFor} />
+        <Results
+          result={state.result}
+          runId={state.runId}
+          ranFor={state.ranFor}
+          fileName={state.fileName}
+          unrecognised={state.unrecognised ?? []}
+        />
       )}
     </>
   )

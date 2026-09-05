@@ -656,3 +656,26 @@ Model choice is **measured, not assumed**: `gpt-oss-120b` drafts. The verifier i
 - **Feature 2 got better because Feature 6 used it.** `POLXXXXX` in a real dossier would have gone unflagged before today.
 - The prompt now forbids placeholders explicitly, and names concrete risks for each strategy, because "None." is what a model writes when asked for a downside in the abstract.
 - Three model families were tried against the same request. That comparison is the only reason the right one was chosen, and it cost four minutes.
+
+---
+
+## ADR-038 — Documents are uploaded to be read, not kept
+**2026-09-05 · Accepted**
+
+**Context.** Both analysis screens took pasted text. A regulatory writer has a PDF, and asking them to paste eleven sections of one is the reason a screen like this goes unused. So both now take a file — the Clinical Report Check (renamed from the pre-submission check) takes the clinical document, and Suggestions takes the incoming request.
+
+That raises a question ingestion never had to answer. `lib/ingest` **keeps** what it uploads: a filed RFI export is a record and the stored PDF is its source. These two screens are the opposite. The document is handed over to be checked and nothing else, and this repository has no business holding a copy of a sponsor's clinical report it never filed.
+
+**Decision.** A separate upload path, `lib/docs/analyse-upload.ts`, under its own `analysis/` key prefix. One-shot signed URL so the bytes go browser-to-Storage and never cross the application server — the host caps request bodies at 4.5 MB and a real report exceeds that. The object is then **deleted in a `finally`**, whether the read succeeded or not. What survives a run is the audit event saying a check happened, never the document it happened to.
+
+Format is decided by magic bytes, not by the content type sent with the upload, which is client-supplied and proves nothing. A PDF with no text layer is refused rather than checked: there is no OCR here, and an empty extraction would produce a confident report that the document contains nothing.
+
+**A fourth pass, for the one thing the others cannot see.** The lint reads what the document *says*; consistency compares values it *states*; mined rules match themes it *mentions*. None can see what a document simply never brings up, because absence has no phrase to match on. `checkCompleteness` is bounded hard against that being an invitation to invent: the model may only report something missing when a supplied past consideration asked for it, it is explicitly told it has no standing to say what a clinical report ought to contain, and every finding cites the record ids that asked. Findings whose citations do not resolve to a retrieved record are dropped, exactly as in Features 3 and 6.
+
+**Consequences.**
+- The check runs over a whole document, sectioned on its own headings, with unmapped headings listed and excluded rather than filed under the nearest match.
+- **Three schema and prompt failures, all found by running it:**
+  - Everything landed in `openQuestions`. The rule permitting it for "cannot tell from the extracted text" let the model route every finding there — a report containing nothing would have been reported as merely unclear. `openQuestions` is now narrow: material the document *points at* but did not supply, or a visibly broken extraction. Absent content is a finding.
+  - Then it emitted one item per past request, several labelled "(duplicate)", some restating a precedent about somebody else's dossier. The prompt now demands one finding per distinct gap with several citations, and `why` must describe *this* document; near-identical items merge in code regardless, because models do this anyway.
+  - Then Groq rejected its own answers twice over. Omitting an empty `openQuestions` failed `/required`; adding `.default([])` removed the key from `required` and was rejected before the call. Groq requires every property listed. Both keys stay required and the prompt says to return an empty array. Separately, a `{ considerationId, supportsClaim }` citation shape came back as bare ids on every retry — `why` already carries the explanation, so citations are now id strings.
+- **The renamed route keeps the old audit `entity_type`.** Rows saying `precheck_run` are history and `audit_events` is append-only; only the filter's label changed.

@@ -18,7 +18,7 @@ export default async function SuggestPage() {
     <div className="mx-auto max-w-4xl px-6 py-8">
       <h1 className="text-xl font-semibold tracking-tight">Suggestions</h1>
       <p className="mt-1 max-w-2xl text-sm text-muted">
-        Paste a request for information that has just arrived. The repository is searched for
+        Upload a request for information that has just arrived, as a PDF. The repository is searched for
         precedent in the same application section, and up to three options are proposed — each
         taking a different approach, each cited to the records it was built from. If no precedent
         is close enough, nothing is drafted and the request is escalated instead.

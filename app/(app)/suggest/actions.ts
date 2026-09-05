@@ -6,7 +6,12 @@ import { createClient, getCurrentUser } from '@/lib/db/server'
 import { log } from '@/lib/log'
 import { consumeRateLimit } from '@/lib/rate-limit'
 import { ALL_SECTIONS } from '@/lib/domain/taxonomy'
-import { MAX_REQUEST_CHARS, rejectionFor } from '@/lib/suggest/parse'
+import { rejectionFor } from '@/lib/suggest/parse'
+import {
+  ANALYSIS_KEY_RE,
+  createAnalysisUploadTarget,
+  readUploadedDocument,
+} from '@/lib/docs/analyse-upload'
 import { suggestResponses } from '@/lib/suggest/run'
 import type { SuggestOutcome } from '@/lib/suggest/types'
 
@@ -20,7 +25,7 @@ const SUGGEST_LIMIT = 8
 const WINDOW_SECONDS = 300
 
 const schema = z.object({
-  text: z.string().trim().min(1).max(MAX_REQUEST_CHARS),
+  storageKey: z.string().regex(ANALYSIS_KEY_RE, 'The upload reference is malformed.'),
   section: z
     .union([z.enum(ALL_SECTIONS as unknown as [string, ...string[]]), z.literal('')])
     .transform((v) => (v === '' ? null : v)),
@@ -30,6 +35,34 @@ export interface SuggestState {
   error?: string
   outcome?: SuggestOutcome
   runId?: string
+  fileName?: string
+  pageCount?: number
+}
+
+export interface UploadTargetState {
+  error?: string
+  storageKey?: string
+  token?: string
+}
+
+/**
+ * Step 1. A one-shot signed URL, so the request document goes straight to
+ * Storage and never crosses this server — the same arrangement the ingestion
+ * path uses, and for the same reason: hosts cap request bodies well below what
+ * a real CTIS export reaches.
+ */
+export async function createRequestUploadAction(fileName: string): Promise<UploadTargetState> {
+  const user = await getCurrentUser()
+  if (!user) return { error: 'You are not signed in.' }
+
+  const limited = await consumeRateLimit(`suggest:upload:${user.id}`, 24, WINDOW_SECONDS)
+  if (!limited.allowed) {
+    return { error: 'Too many uploads in a short time. Wait a moment and try again.' }
+  }
+
+  const target = await createAnalysisUploadTarget(fileName)
+  if (!target.ok) return { error: target.error }
+  return { storageKey: target.storageKey, token: target.token }
 }
 
 export async function suggestAction(
@@ -40,16 +73,24 @@ export async function suggestAction(
   if (!user) return { error: 'You are not signed in.' }
 
   const parsed = schema.safeParse({
-    text: formData.get('text') ?? '',
+    storageKey: formData.get('storageKey') ?? '',
     section: formData.get('section') ?? '',
   })
   if (!parsed.success) {
     return { error: parsed.error.issues[0].message }
   }
 
+  const fileName = String(formData.get('fileName') ?? 'request.pdf').slice(0, 200)
+
+  // The uploaded object is deleted as soon as its text has been read. An
+  // incoming request is the sponsor's document, handed over to be answered, and
+  // this repository has no reason to keep a copy of one it never filed.
+  const read = await readUploadedDocument(parsed.data.storageKey)
+  if (!read.ok) return { error: read.error }
+
   // Cheap, deterministic rejections before anything is spent on retrieval or a
   // model call. A fragment cannot be answered and should not cost anything.
-  const rejection = rejectionFor(parsed.data.text)
+  const rejection = rejectionFor(read.text)
   if (rejection) return { error: rejection }
 
   const limited = await consumeRateLimit(`suggest:${user.id}`, SUGGEST_LIMIT, WINDOW_SECONDS)
@@ -64,7 +105,7 @@ export async function suggestAction(
   try {
     const supabase = await createClient()
     const outcome = await suggestResponses(
-      { text: parsed.data.text, section: parsed.data.section },
+      { text: read.text, section: parsed.data.section },
       supabase,
       { actorId: user.id },
     )
@@ -83,6 +124,8 @@ export async function suggestAction(
       action: outcome.refused ? 'SUGGEST_REFUSED' : 'SUGGESTED',
       reason: outcome.refused ? outcome.reason.slice(0, 500) : null,
       metadata: {
+        file_name: fileName,
+        pages: read.pageCount,
         section: outcome.parsed.section,
         member_state: outcome.parsed.memberState,
         category: outcome.parsed.category,
@@ -107,7 +150,7 @@ export async function suggestAction(
       }
     }
 
-    return { outcome, runId }
+    return { outcome, runId, fileName, pageCount: read.pageCount }
   } catch (err) {
     log.error('suggest.action_failed', {}, err)
     return {

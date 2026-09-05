@@ -15,7 +15,7 @@ const TEAMS: [string, string][] = [
 const ENTITY_TYPES: [string, string][] = [
   ['rfi_document', 'RFI document'],
   ['rfi_consideration', 'Consideration'],
-  ['precheck_run', 'Pre-submission check'],
+  ['precheck_run', 'Clinical report check'],
   ['suggestion_run', 'Suggestion run'],
   ['corpus', 'Corpus'],
 ]

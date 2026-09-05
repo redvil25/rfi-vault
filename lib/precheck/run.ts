@@ -5,6 +5,8 @@ import { CATEGORY_BY_ID, MEMBER_STATE_BY_CODE } from '@/lib/domain/taxonomy'
 import { classifyConsideration } from '@/lib/ingest/classify'
 import { lintSection } from './lint'
 import { checkConsistency } from './consistency'
+import { aiEnabled } from '@/lib/env'
+import { checkCompleteness } from '@/lib/ai/completeness'
 import { absenceSentence, isSubstantive, topicSkipReason, wordCount } from './topic'
 import {
   describeRule,
@@ -17,6 +19,7 @@ import {
   type MinedRuleRow,
 } from './rules'
 import type {
+  Completeness,
   Coverage,
   Flag,
   MinedRule,
@@ -352,8 +355,25 @@ export async function runPrecheck(
     { BLOCKER: 0, LIKELY: 0, WATCH: 0 },
   )
 
+  // ---- the completeness pass --------------------------------------------
+  //
+  // Last, and only over precedent already retrieved. The deterministic passes
+  // read the document for what it says; this is the only one that can see what
+  // it never mentions, because absence has no phrase to match on. It is bounded
+  // to the past requests above: the model is not asked what a clinical report
+  // ought to contain, only which of these specific questions it would not
+  // answer.
+  const completed = await runCompleteness(
+    sections,
+    input.memberStates,
+    [...precedents.values()].flat(),
+  )
+
   return {
     flags,
+    completeness: completed.completeness,
+    completenessUnavailable: completed.unavailable,
+    pageCount: input.pageCount ?? null,
     rules,
     tooShort: sections
       .filter((s) => !isSubstantive(s.text))
@@ -362,6 +382,85 @@ export async function runPrecheck(
     coverage: coverageOf(mined, input.memberStates),
     counts,
     ranAt: now.toISOString(),
+  }
+}
+
+/**
+ * The model's pass over what the document does not say.
+ *
+ * Degrades rather than fails. With no model configured, or with no precedent to
+ * check against, the deterministic findings still stand on their own and the
+ * screen says which pass did not run — a result that quietly dropped half its
+ * checks would read as a cleaner document than it is (ADR-025).
+ */
+async function runCompleteness(
+  sections: { section: string; text: string }[],
+  memberStates: string[],
+  precedents: RulePrecedent[],
+): Promise<{ completeness: Completeness | null; unavailable: string | null }> {
+  if (!aiEnabled()) {
+    return {
+      completeness: null,
+      unavailable: 'no model is configured, so nothing checked the report for gaps it does not mention',
+    }
+  }
+  if (sections.length === 0 || precedents.length === 0) {
+    return {
+      completeness: null,
+      unavailable:
+        'no past request was retrieved for these sections, so there was nothing to check the report against',
+    }
+  }
+
+  // One copy per consideration: the same record surfaces under several rules.
+  const unique = [...new Map(precedents.map((p) => [p.considerationId, p])).values()].slice(0, 24)
+  const retrieved = new Set(unique.map((p) => p.considerationId))
+
+  try {
+    const { payload, model } = await checkCompleteness({ sections, memberStates, precedents: unique })
+
+    // Same rule as everywhere else: a citation naming a record that was not
+    // supplied is a fabricated reference, and a finding that loses all of them
+    // is dropped rather than shown unsourced.
+    const cite = <T extends { citations: string[] }>(x: T) => ({
+      ...x,
+      citations: x.citations.filter((id) => retrieved.has(id)),
+    })
+
+    // Models emit one finding per past request even when told not to, and label
+    // the repeats "(duplicate)". Merging on the normalised item keeps the
+    // citations from every copy, which is what the reader wanted anyway.
+    const merge = <T extends { item: string; citations: string[] }>(items: T[]): T[] => {
+      const byItem = new Map<string, T>()
+      for (const item of items) {
+        const key = item.item
+          .toLowerCase()
+          .replace(/\(.*?\)/g, '')
+          .replace(/[^a-z0-9 ]/g, '')
+          .replace(/\s+/g, ' ')
+          .trim()
+        const seen = byItem.get(key)
+        if (!seen) byItem.set(key, item)
+        else seen.citations.push(...item.citations.filter((id) => !seen.citations.includes(id)))
+      }
+      return [...byItem.values()]
+    }
+
+    return {
+      completeness: {
+        missing: merge(payload.missing.map(cite).filter((m) => m.citations.length > 0)),
+        addressed: merge(payload.addressed.map(cite).filter((a) => a.citations.length > 0)),
+        openQuestions: payload.openQuestions,
+        model,
+      },
+      unavailable: null,
+    }
+  } catch (err) {
+    log.error('precheck.completeness_failed', { sections: sections.length }, err)
+    return {
+      completeness: null,
+      unavailable: 'the model could not be reached, so the report was not checked for unmentioned gaps',
+    }
   }
 }
 

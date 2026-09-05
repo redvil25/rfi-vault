@@ -50,6 +50,8 @@ Rules, in order of priority:
    explanation the regulator did not ask for.
 8. Anything the precedents do not settle goes in openQuestions, and lowers confidence.
 9. Every option is a DRAFT for human review. Never phrase one as final or approved.
+10. ALWAYS return both keys — options and openQuestions. When there is nothing to add
+    under openQuestions, return an empty array. Never omit a key.
 
 Vocabulary is fixed and must be used exactly: consideration, request for information,
 sponsor response, application section part, substantial modification, Member State

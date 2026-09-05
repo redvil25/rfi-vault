@@ -71,7 +71,11 @@ export const SuggestionsSchema = z.object({
     )
     .min(1)
     .max(3),
-  /** Anything the precedents do not settle. Shown regardless of which option is chosen. */
+  /**
+   * Anything the precedents do not settle. Shown regardless of which option is
+   * chosen. Required, and the prompt says to return an empty array rather than
+   * omit it — a provider that enforces the schema rejects a missing key.
+   */
   openQuestions: z.array(z.string().max(400)).max(8),
 })
 

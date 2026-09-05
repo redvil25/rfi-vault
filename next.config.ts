@@ -64,13 +64,14 @@ const nextConfig: NextConfig = {
   // Do not advertise the framework.
   poweredByHeader: false,
 
-  // unpdf ships WASM and worker assets that cannot live in a bundle chunk.
-  // Leaving it as a runtime require is the supported arrangement.
-  //
   // There is no outputFileTracingIncludes any more: it existed solely to carry
   // the Tesseract language data, and dropping OCR (ADR-021) removed both the
   // 5 MB asset and the two native packages that came with it.
-  serverExternalPackages: ["unpdf"],
+  // unpdf ships WASM and worker assets; @huggingface/transformers loads ONNX
+  // runtimes and model weights at runtime. Neither survives being bundled into
+  // a chunk, and the embedding model additionally needs its native or WASM
+  // backend resolvable from node_modules rather than from a trace.
+  serverExternalPackages: ["unpdf", "@huggingface/transformers", "onnxruntime-node"],
 
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];

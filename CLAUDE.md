@@ -61,7 +61,7 @@ thing to add when something outside this app needs to call in, and nothing does.
   /(auth)               sign-in, sign-up
   /(app)
     /search             Feature 1 — hybrid search
-    /precheck           Feature 2 — pre-submission check (lint + mined rules)
+    /report-check       Feature 2 — Clinical Report Check (PDF in, lint + mined rules + AI gaps)
     /suggest            Feature 6 — three grounded options for a pasted RFI
     /rfi/[id]           RFI detail, Feature 3 draft generation, the status machine
     /ingest             document upload + parse
@@ -71,6 +71,7 @@ thing to add when something outside this app needs to call in, and nothing does.
   /ai                   embeddings, prompts, LLM clients, verifier
   /draft                precedent retrieval, the confidence gate, draft orchestration
   /precheck             absence/futurity lint, corpus-mined rules, date scoping
+  /docs                 upload-to-read: signed URL in, text out, object deleted
   /suggest              paste parsing, strategy options, citation validation
   /workflow             the response status machine and its executor
   /search               RRF fusion, reranking

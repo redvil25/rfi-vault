@@ -122,6 +122,8 @@ export interface PrecheckInput {
   submissionType: SubmissionType
   memberStates: string[]
   sections: { section: string; text: string }[]
+  /** Pages read from an uploaded PDF, echoed back so the screen can say what it saw. */
+  pageCount?: number
 }
 
 /**
@@ -143,8 +145,29 @@ export interface Coverage {
   memberStatesWithoutPrecedent: string[]
 }
 
+/** The model's completeness pass, when one ran. */
+export interface Completeness {
+  missing: {
+    item: string
+    why: string
+    section: string
+    /** Consideration ids of the past requests that asked for this. */
+    citations: string[]
+    confidence: number
+  }[]
+  addressed: { item: string; whereFound: string; citations: string[] }[]
+  openQuestions: string[]
+  model: string
+}
+
 export interface PrecheckResult {
   flags: Flag[]
+  /** Null when no model is configured, or when the pass could not run. */
+  completeness: Completeness | null
+  /** Why the completeness pass did not run. Null when it did. */
+  completenessUnavailable: string | null
+  /** Pages read out of the uploaded PDF, when the input was a document. */
+  pageCount: number | null
   /** Sections too short for the mined rules to say anything about. */
   tooShort: { section: string; words: number }[]
   rules: RuleReport[]
