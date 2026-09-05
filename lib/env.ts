@@ -15,13 +15,39 @@ const publicSchema = z.object({
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(20),
 })
 
+// Declared before the server schema uses it, because these two are validated at
+// module load and a blank there must fail loudly rather than silently default.
+
+/**
+ * An empty environment variable means "not set", not "zero".
+ *
+ * A host that stores a variable with no value hands the process an empty
+ * string. `z.coerce.number()` turns that into `0`, which then fails
+ * `.positive()` — so `EMBEDDING_DIM=` did not fall back to 768, it threw, and
+ * the whole server schema failed to parse. The symptom was three layers away
+ * from the cause: "embedding the query failed" on the live search page, with a
+ * ZodError about EMBEDDING_DIM and RRF_K buried in the function logs.
+ *
+ * Blanking a variable is how a person un-sets one in a dashboard. It has to
+ * behave like absence.
+ */
+function blankAsUnset(value: unknown): unknown {
+  return typeof value === 'string' && value.trim() === '' ? undefined : value
+}
+
+const optionalText = z.preprocess(blankAsUnset, z.string().optional())
+const textWithDefault = (fallback: string) =>
+  z.preprocess(blankAsUnset, z.string().default(fallback))
+const positiveInt = (fallback: number) =>
+  z.preprocess(blankAsUnset, z.coerce.number().int().positive().default(fallback))
+
 const serverSchema = z.object({
-  SUPABASE_SERVICE_ROLE_KEY: z.string().min(20).optional(),
-  GOOGLE_GENERATIVE_AI_API_KEY: z.string().optional(),
-  GEMINI_MODEL_FAST: z.string().default('gemini-2.5-flash'),
-  GEMINI_MODEL_STRONG: z.string().default('gemini-2.5-pro'),
-  GEMINI_EMBEDDING_MODEL: z.string().default('gemini-embedding-001'),
-  GROQ_API_KEY: z.string().optional(),
+  SUPABASE_SERVICE_ROLE_KEY: z.preprocess(blankAsUnset, z.string().min(20).optional()),
+  GOOGLE_GENERATIVE_AI_API_KEY: optionalText,
+  GEMINI_MODEL_FAST: textWithDefault('gemini-2.5-flash'),
+  GEMINI_MODEL_STRONG: textWithDefault('gemini-2.5-pro'),
+  GEMINI_EMBEDDING_MODEL: textWithDefault('gemini-embedding-001'),
+  GROQ_API_KEY: optionalText,
   /**
    * Drafting and verification. Measured, not assumed — see ADR-037.
    *
@@ -34,18 +60,21 @@ const serverSchema = z.object({
    * member of the same one. A grader that shares the drafter's blind spots
    * agrees with it, and ADR-006 wants a check, not a chorus.
    */
-  GROQ_MODEL_FAST: z.string().default('openai/gpt-oss-120b'),
-  GROQ_MODEL_STRONG: z.string().default('qwen/qwen3.8-27b'),
+  GROQ_MODEL_FAST: textWithDefault('openai/gpt-oss-120b'),
+  GROQ_MODEL_STRONG: textWithDefault('qwen/qwen3.8-27b'),
   /**
    * 768 dimensions, matching `vector(768)` in 0003_core.sql, and the reason this
    * model rather than the more common all-MiniLM-L6-v2, which is 384. A mismatch
    * is not a soft failure — Postgres rejects the insert.
    */
-  LOCAL_EMBEDDING_MODEL: z.string().default('Xenova/all-mpnet-base-v2'),
-  EMBEDDING_DIM: z.coerce.number().int().positive().default(768),
-  RRF_K: z.coerce.number().int().positive().default(60),
-  DRAFT_SIMILARITY_THRESHOLD: z.coerce.number().min(0).max(1).default(0.62),
-  SEED_RANDOM_SEED: z.coerce.number().int().default(42),
+  LOCAL_EMBEDDING_MODEL: textWithDefault('Xenova/all-mpnet-base-v2'),
+  EMBEDDING_DIM: positiveInt(768),
+  RRF_K: positiveInt(60),
+  DRAFT_SIMILARITY_THRESHOLD: z.preprocess(
+    blankAsUnset,
+    z.coerce.number().min(0).max(1).default(0.62),
+  ),
+  SEED_RANDOM_SEED: z.preprocess(blankAsUnset, z.coerce.number().int().default(42)),
 })
 
 /** Safe to read in the browser. */
