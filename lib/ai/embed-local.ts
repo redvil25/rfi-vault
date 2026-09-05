@@ -1,3 +1,5 @@
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { serverEnv } from '@/lib/env'
 import { log } from '@/lib/log'
 
@@ -85,9 +87,18 @@ async function load(model: string): Promise<FeatureExtractor> {
   ) => Promise<FeatureExtractor>
 
   try {
-    ;({ pipeline } = (await import('@huggingface/transformers')) as unknown as {
+    const mod = (await import('@huggingface/transformers')) as unknown as {
       pipeline: typeof pipeline
-    })
+      env: { cacheDir?: string; localModelPath?: string }
+    }
+    pipeline = mod.pipeline
+
+    // The weights are downloaded on first use and cached beside the package,
+    // which is read-only on a serverless host: the failure is an ENOENT on
+    // mkdir inside node_modules, surfacing as a model that will not load. /tmp
+    // is the only writable path there, and re-downloading per cold instance is
+    // the price of not shipping 110 MB of weights in the bundle.
+    mod.env.cacheDir = join(tmpdir(), 'transformers-cache')
   } catch (err) {
     // The import itself, not the pipeline. onnxruntime-node dlopens
     // libonnxruntime.so.1, so a deployment missing that file fails here — and
@@ -107,8 +118,12 @@ async function load(model: string): Promise<FeatureExtractor> {
   try {
     return await pipeline('feature-extraction', model)
   } catch (err) {
+    // 'cpu', not 'wasm'. In Node the accepted devices are cuda, webgpu and cpu —
+    // 'wasm' is a browser-side name, so the fallback that was supposed to rescue
+    // a failed load threw "Unsupported device" and replaced one error with a
+    // worse one.
     log.warn('ai.local_embedder_native_failed', { model }, err)
-    return await pipeline('feature-extraction', model, { device: 'wasm' })
+    return await pipeline('feature-extraction', model, { device: 'cpu' })
   }
 }
 

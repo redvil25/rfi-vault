@@ -20,6 +20,7 @@
     "verify": "tsx scripts/verify/smoke.ts",
     "ingest": "tsx scripts/ingest/run.ts",
     "fixtures:pdf": "python scripts/fixtures/make_rfi_pdf.py",
+    "fixtures:report": "python scripts/fixtures/make_report_pdf.py",
     "setup:storage": "tsx scripts/setup/storage.ts",
     "verify:ingest": "tsx scripts/verify/ingest-e2e.ts",
     "embed": "tsx scripts/embed/run.ts",

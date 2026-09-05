@@ -72,8 +72,15 @@ export interface CompletenessRequest {
   precedents: RulePrecedent[]
 }
 
-/** Document text handed to the model, capped so one upload cannot blow the context. */
-const MAX_SECTION_CHARS = 6000
+/**
+ * Document text handed to the model, per section.
+ *
+ * Lowered from 6000 after the call succeeded locally on three sections and
+ * failed in production on four with "Failed to generate JSON": the model's
+ * structured-output mode degrades as the prompt grows, and it degrades by
+ * emitting something unparseable rather than by saying so.
+ */
+const MAX_SECTION_CHARS = 3000
 
 function describeSection(s: { section: string; text: string }): string {
   const text = s.text.length > MAX_SECTION_CHARS

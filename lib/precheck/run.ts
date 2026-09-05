@@ -413,7 +413,10 @@ async function runCompleteness(
   }
 
   // One copy per consideration: the same record surfaces under several rules.
-  const unique = [...new Map(precedents.map((p) => [p.considerationId, p])).values()].slice(0, 24)
+  // Twelve, not twenty-four. Same reason as MAX_SECTION_CHARS: a longer prompt
+  // makes this model's JSON mode fail outright, and twelve past requests across
+  // four sections is already more than a reviewer reads.
+  const unique = [...new Map(precedents.map((p) => [p.considerationId, p])).values()].slice(0, 12)
   const retrieved = new Set(unique.map((p) => p.considerationId))
 
   try {
