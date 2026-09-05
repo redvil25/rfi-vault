@@ -16,8 +16,7 @@
 import '../load-env'
 import { createServiceClient } from '../../lib/db/service'
 import { embedDocuments, toVectorLiteral } from '../../lib/ai/embed'
-import { aiEnabled } from '../../lib/env'
-import { AiDisabledError } from '../../lib/ai/client'
+import { remoteEmbeddings } from '../../lib/env'
 
 const FORCE = process.argv.includes('--force')
 const LIMIT = (() => {
@@ -37,9 +36,13 @@ interface Pending {
 }
 
 async function main() {
-  if (!aiEnabled()) {
-    throw new AiDisabledError('Embedding the corpus')
-  }
+  // No key needed: embeddings fall back to the local sentence-transformer, which
+  // is the whole point of ADR-035. The first run downloads its weights.
+  console.log(
+    remoteEmbeddings()
+      ? 'Embedding with Gemini.'
+      : 'Embedding locally — no key needed, nothing leaves this machine.',
+  )
 
   const db = createServiceClient()
 

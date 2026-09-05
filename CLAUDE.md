@@ -39,8 +39,8 @@
 | Database | Supabase Postgres + `pgvector` (HNSW) + `tsvector` full-text, EU region |
 | Auth | Supabase Auth (email/password + magic link), RBAC via Postgres RLS |
 | File storage | Supabase Storage (private bucket, signed URLs) |
-| LLM | Google Gemini via **AI SDK v7** (`ai` + `@ai-sdk/google`, direct provider — no gateway) — `gemini-2.5-flash` for extraction/drafting, `gemini-2.5-pro` for the verifier pass |
-| Embeddings | `gemini-embedding-001` (768-dim output configured), with a local `transformers.js` fallback if quota is exhausted |
+| LLM | **Groq** (`@ai-sdk/groq`) or Google Gemini (`@ai-sdk/google`), whichever key is set, via **AI SDK v7** — direct provider, no gateway. Groq: `openai/gpt-oss-20b` for extraction/drafting, `openai/gpt-oss-120b` for the verifier pass (ADR-035) |
+| Embeddings | **Local `@huggingface/transformers`** — `Xenova/all-mpnet-base-v2`, 768-dim, no key and nothing leaves the machine. `gemini-embedding-001` is used instead when a Google key is set. Groq serves no embedding model, so this is not optional (ADR-035) |
 | Validation | Zod v4 on every API boundary |
 | Tests | Vitest (unit) + Playwright (E2E) |
 | CI | GitHub Actions — typecheck, lint, unit, build; E2E enabled in Phase 3 |

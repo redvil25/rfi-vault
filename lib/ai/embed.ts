@@ -1,8 +1,10 @@
 import { embedMany } from 'ai'
 import { google } from '@ai-sdk/google'
 import { log } from '@/lib/log'
+import { remoteEmbeddings, serverEnv } from '@/lib/env'
+import { LOCAL_EMBEDDING_BATCH, embedLocally } from './embed-local'
 import {
-  costUsd, models, recordAiCall, requireAi, type AiPurpose,
+  costUsd, models, recordAiCall, type AiPurpose,
 } from './client'
 
 /**
@@ -42,11 +44,22 @@ export interface EmbedResult {
   latencyMs: number
 }
 
+/**
+ * One batch, from whichever embedder is available.
+ *
+ * Gemini when a Google key is present, the local sentence-transformer
+ * otherwise. Both land in `ai_calls` — the local one at zero cost and with a
+ * model name that says where it ran, because a run whose embeddings came from a
+ * different model is a run whose retrieval numbers are not comparable, and the
+ * telemetry has to be able to say which was which.
+ */
 async function embedBatch(
   values: string[],
   task: EmbeddingTask,
   purpose: AiPurpose,
 ): Promise<EmbedResult> {
+  if (!remoteEmbeddings()) return embedBatchLocally(values, purpose)
+
   const { embedding: model, embeddingDim } = models()
   const started = performance.now()
 
@@ -96,15 +109,46 @@ async function embedBatch(
   }
 }
 
+async function embedBatchLocally(values: string[], purpose: AiPurpose): Promise<EmbedResult> {
+  const model = `local:${serverEnv().LOCAL_EMBEDDING_MODEL}`
+  const started = performance.now()
+
+  try {
+    const embeddings = await embedLocally(values)
+    const latencyMs = Math.round(performance.now() - started)
+    await recordAiCall({
+      purpose,
+      model,
+      // No tokens and no cost: it ran here. Recording an invented figure would
+      // corrupt the cost-per-RFI number the Business Impact slide reads from
+      // this table.
+      inputTokens: null,
+      latencyMs,
+      costUsd: 0,
+      success: true,
+    })
+    return { embeddings, inputTokens: null, latencyMs }
+  } catch (err) {
+    await recordAiCall({
+      purpose,
+      model,
+      latencyMs: Math.round(performance.now() - started),
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+    })
+    throw err
+  }
+}
+
 /**
  * Embeds many texts, in batches, preserving input order.
  *
- * Throws `AiDisabledError` when no key is configured rather than returning
- * empty vectors — a silent zero vector would poison the index and look like a
- * retrieval bug weeks later.
+ * No `requireAi` any more: embeddings are a separate capability from text
+ * generation and the local model needs no key. Conflating the two was a real
+ * bug — a Groq key made `aiEnabled()` true while semantic retrieval stayed
+ * impossible, because Groq serves no embedding model.
  */
 export async function embedDocuments(values: string[]): Promise<EmbedResult> {
-  requireAi('Embedding the corpus')
   if (values.length === 0) return { embeddings: [], inputTokens: 0, latencyMs: 0 }
 
   const embeddings: number[][] = []
@@ -112,8 +156,9 @@ export async function embedDocuments(values: string[]): Promise<EmbedResult> {
   let latencyMs = 0
   let sawTokens = false
 
-  for (let i = 0; i < values.length; i += BATCH_SIZE) {
-    const batch = values.slice(i, i + BATCH_SIZE)
+  const batchSize = remoteEmbeddings() ? BATCH_SIZE : LOCAL_EMBEDDING_BATCH
+  for (let i = 0; i < values.length; i += batchSize) {
+    const batch = values.slice(i, i + batchSize)
     const result = await embedBatch(batch, 'RETRIEVAL_DOCUMENT', 'EMBED')
     embeddings.push(...result.embeddings)
     if (result.inputTokens != null) {
@@ -131,9 +176,8 @@ export async function embedDocuments(values: string[]): Promise<EmbedResult> {
   return { embeddings, inputTokens: sawTokens ? inputTokens : null, latencyMs }
 }
 
-/** Embeds one search query. Same model, query-side task type. */
+/** Embeds one search query. Same model as the corpus, query-side task type. */
 export async function embedQuery(query: string): Promise<number[]> {
-  requireAi('Semantic search')
   const { embeddings } = await embedBatch([query], 'RETRIEVAL_QUERY', 'EMBED')
   return embeddings[0]
 }

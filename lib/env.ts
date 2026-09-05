@@ -21,6 +21,19 @@ const serverSchema = z.object({
   GEMINI_MODEL_FAST: z.string().default('gemini-2.5-flash'),
   GEMINI_MODEL_STRONG: z.string().default('gemini-2.5-pro'),
   GEMINI_EMBEDDING_MODEL: z.string().default('gemini-embedding-001'),
+  GROQ_API_KEY: z.string().optional(),
+  /**
+   * Drafting and verification, mirroring the flash/pro split ADR-006 relies on:
+   * the grader must be the stronger of the two, or it is not a grader.
+   */
+  GROQ_MODEL_FAST: z.string().default('openai/gpt-oss-20b'),
+  GROQ_MODEL_STRONG: z.string().default('openai/gpt-oss-120b'),
+  /**
+   * 768 dimensions, matching `vector(768)` in 0003_core.sql, and the reason this
+   * model rather than the more common all-MiniLM-L6-v2, which is 384. A mismatch
+   * is not a soft failure — Postgres rejects the insert.
+   */
+  LOCAL_EMBEDDING_MODEL: z.string().default('Xenova/all-mpnet-base-v2'),
   EMBEDDING_DIM: z.coerce.number().int().positive().default(768),
   RRF_K: z.coerce.number().int().positive().default(60),
   DRAFT_SIMILARITY_THRESHOLD: z.coerce.number().min(0).max(1).default(0.62),
@@ -38,13 +51,51 @@ export function serverEnv() {
   return serverSchema.parse(process.env)
 }
 
+/** A key that is absent, empty, or still the placeholder is not a key. */
+function usable(key: string | undefined): boolean {
+  return Boolean(key && key !== PLACEHOLDER && key.length > 20)
+}
+
+export type GenerationProvider = 'google' | 'groq'
+
 /**
- * True only when a real Gemini key is present. Every AI code path must check
- * this and degrade to the deterministic path rather than throwing.
+ * Which provider serves text generation, or null when none is configured.
+ *
+ * Groq wins when both are present, because it is the one somebody deliberately
+ * added: the Gemini variables ship with defaults and are easy to leave lying
+ * around, a Groq key is not.
+ */
+export function generationProvider(): GenerationProvider | null {
+  if (usable(process.env.GROQ_API_KEY)) return 'groq'
+  if (usable(process.env.GOOGLE_GENERATIVE_AI_API_KEY)) return 'google'
+  return null
+}
+
+/**
+ * True when something can generate text. Every generation path must check this
+ * and degrade to the deterministic path rather than throwing.
  */
 export function aiEnabled(): boolean {
-  const key = process.env.GOOGLE_GENERATIVE_AI_API_KEY
-  return Boolean(key && key !== PLACEHOLDER && key.length > 20)
+  return generationProvider() !== null
+}
+
+/**
+ * Embeddings are a separate capability from generation, and conflating them was
+ * a real bug: Groq serves no embedding model at all, so a Groq key made
+ * `aiEnabled()` true while semantic retrieval remained impossible. Retrieval
+ * must ask this question, not that one.
+ *
+ * Always true, because the local sentence-transformer fallback needs no key and
+ * no network once its weights are cached (ADR-035). Kept as a function so the
+ * call sites read as a capability check rather than as a constant.
+ */
+export function embeddingsEnabled(): boolean {
+  return true
+}
+
+/** True when embeddings come from Gemini rather than from the local model. */
+export function remoteEmbeddings(): boolean {
+  return usable(process.env.GOOGLE_GENERATIVE_AI_API_KEY)
 }
 
 export function requireServiceRoleKey(): string {

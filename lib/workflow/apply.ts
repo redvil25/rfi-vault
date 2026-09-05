@@ -3,7 +3,7 @@ import type { Database } from '@/lib/db/types'
 import { createServiceClient } from '@/lib/db/service'
 import { embedDocuments } from '@/lib/ai/embed'
 import { toVectorLiteral } from '@/lib/ai/embed'
-import { aiEnabled } from '@/lib/env'
+import { embeddingsEnabled } from '@/lib/env'
 import { log } from '@/lib/log'
 import { TRANSITIONS, blockedBecause, type WorkflowAction } from './transitions'
 
@@ -167,8 +167,8 @@ async function reEmbedResponse(
   considerationText: string,
   responseText: string,
 ): Promise<{ ok: boolean; note?: string }> {
-  if (!aiEnabled()) {
-    return { ok: false, note: 'no model configured, so it is searchable by keyword only' }
+  if (!embeddingsEnabled()) {
+    return { ok: false, note: 'no embedding model available, so it is searchable by keyword only' }
   }
   if (!responseText.trim()) {
     return { ok: false, note: 'there is no response text to index' }

@@ -22,18 +22,21 @@ scripts/eval/
 
 | Configuration | Recall@5 | MRR@10 | nDCG@10 | p95 latency |
 |---|---|---|---|---|
-| Keyword only (BM25 / `ts_rank_cd`) | | | | |
-| Vector only (pgvector cosine) | | | | |
-| **Hybrid (RRF, k=60)** | | | | |
-| Hybrid + LLM rerank | | | | |
+| Keyword only (`ts_rank_cd`) | 0.634 | 0.634 | 0.634 | 488 ms |
+| Vector only (pgvector cosine) | 0.195 | 0.188 | 0.187 | 389 ms |
+| **Hybrid (RRF, k=60)** | **0.795** | **0.798** | **0.793** | 242 ms |
+
+Measured 5 Sep 2026 over 952 considerations and 41 gold queries, embeddings from the local `all-mpnet-base-v2` model. Reproduce with `npm run eval`.
 
 Then break the same table down by **query type**, using the planted pairs from `docs/03-DATA-MODEL.md` §2.2:
 
 | Query type | Keyword only | Vector only | Hybrid |
 |---|---|---|---|
-| Identifier / code queries (`CT-2024-…`, POL, Annex) | high | **low** | high |
-| Paraphrased semantic queries | **low** | high | high |
-| Mixed natural queries | medium | medium | **high** |
+| Identifier / code queries (n=25) | 1.000 | **0.000** | 0.944 |
+| Paraphrased semantic queries (n=10) | **0.000** | 0.580 | 0.680 |
+| Mixed natural queries (n=6) | 0.167 | 0.367 | 0.367 |
+
+The two zeroes are the argument. Neither arm can do the other's job at all, and hybrid is the only column that is never zero. **This table did not always read this way** — see ADR-036: hybrid scored 0.220 and lost every identifier query until the missing identifier arm was found, by running this exact evaluation.
 
 This second table is the argument. It shows *why* hybrid exists rather than asserting that it is better. When a judge asks "why not just use embeddings?", point at row one. Anticipating the judge's question with a pre-computed answer is the strongest possible response.
 

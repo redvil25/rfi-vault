@@ -1,6 +1,9 @@
 import { createHash } from 'node:crypto'
+import { google } from '@ai-sdk/google'
+import { createGroq } from '@ai-sdk/groq'
+import type { LanguageModel } from 'ai'
 import { createServiceClient } from '@/lib/db/service'
-import { aiEnabled, serverEnv } from '@/lib/env'
+import { aiEnabled, generationProvider, serverEnv } from '@/lib/env'
 import { log } from '@/lib/log'
 
 /**
@@ -32,9 +35,11 @@ export type AiPurpose = 'EMBED' | 'EXTRACT' | 'DRAFT' | 'SUGGEST' | 'VERIFY' | '
 export class AiDisabledError extends Error {
   constructor(what: string) {
     super(
-      `${what} needs GOOGLE_GENERATIVE_AI_API_KEY. It is unset or still the placeholder, ` +
-        'so the AI path is off. The deterministic paths — PDF parsing, keyword search, ' +
-        'rule-based classification — all work without it.',
+      `${what} needs a text-generation key: either GROQ_API_KEY or ` +
+        'GOOGLE_GENERATIVE_AI_API_KEY. Neither is set, or both are still the placeholder, ' +
+        'so the generation path is off. Everything deterministic — PDF parsing, keyword ' +
+        'search, rule-based classification, the pre-submission check — still works, and so ' +
+        'does semantic retrieval, which runs on the local embedding model.',
     )
     this.name = 'AiDisabledError'
   }
@@ -51,14 +56,39 @@ export interface ModelChoice {
   embeddingDim: number
 }
 
+/**
+ * Model names for whichever provider is configured.
+ *
+ * `embedding` names the Gemini model regardless: the local fallback is selected
+ * inside `lib/ai/embed.ts`, which is the only module that has to care, and
+ * reporting a model name here that never ran would be worse than reporting the
+ * one that would have.
+ */
 export function models(): ModelChoice {
   const env = serverEnv()
+  const groq = generationProvider() === 'groq'
   return {
-    fast: env.GEMINI_MODEL_FAST,
-    strong: env.GEMINI_MODEL_STRONG,
+    fast: groq ? env.GROQ_MODEL_FAST : env.GEMINI_MODEL_FAST,
+    strong: groq ? env.GROQ_MODEL_STRONG : env.GEMINI_MODEL_STRONG,
     embedding: env.GEMINI_EMBEDDING_MODEL,
     embeddingDim: env.EMBEDDING_DIM,
   }
+}
+
+/**
+ * The language model for a call, from whichever provider is configured.
+ *
+ * Every `generateObject` in the codebase resolves its model through here, so
+ * changing provider stays the one-file change ADR-012 promised. The Groq client
+ * is constructed per call rather than at module load: the key is read from the
+ * environment at request time, and a module-level client captures whatever was
+ * set when the file was first imported.
+ */
+export function languageModel(name: string): LanguageModel {
+  if (generationProvider() === 'groq') {
+    return createGroq({ apiKey: process.env.GROQ_API_KEY })(name)
+  }
+  return google(name)
 }
 
 /** Stable identity for a prompt version, so a row in `ai_calls` is traceable to what produced it. */

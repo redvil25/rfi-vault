@@ -575,3 +575,56 @@ The schema is `.min(1).max(3)`. If the precedent supports two honest strategies,
 - **Deliberately not built:** no way to file the chosen option as a consideration from this screen. That is Feature 3's job and it has the status machine, the approval step and the audit trail to do it properly. A second, lighter path into the repository would be a second set of rules about who may write to it.
 
 **Found while shipping this.** `GOOGLE_GENERATIVE_AI_API_KEY` is set to an empty string in the production environment, so `aiEnabled()` is false there. Semantic retrieval, drafting and suggestions all refuse on the deployed site and say why — which is the designed behaviour and is exactly what the search page's "keyword search only" notice has been reporting. It is a configuration gap, not a code defect, and no amount of code will make the feature demonstrable until a real key is set.
+
+---
+
+## ADR-035 — Generation and embedding are separate capabilities, from separate providers
+**2026-09-05 · Accepted · Supersedes part of ADR-013**
+
+**Context.** The project could not obtain a Google Gemini key; the key available was Groq's. Swapping the generation provider is what ADR-012's single choke point was built for, so that half was a one-file change.
+
+The other half was not. **Groq serves no embedding model at all.** And `aiEnabled()` was a single flag standing for "AI works", read by both the generation paths and the retrieval paths. A Groq key would have set it true while semantic retrieval remained impossible — every draft and every suggestion would have proceeded to a confidence gate computed from nothing.
+
+That is worse than the old failure. Refusing because there is no key is honest; refusing because similarity is undefined, while reporting that a model is configured, is not.
+
+**Decision.** Split the capability in two.
+
+`generationProvider()` returns `'groq' | 'google' | null` — Groq wins when both are present, because the Gemini variables ship with defaults and are easy to leave lying around, while a Groq key is something somebody deliberately added. `aiEnabled()` now means only "text generation is available". `embeddingsEnabled()` is the separate question retrieval asks, and every retrieval path was moved onto it.
+
+Embeddings come from a **local sentence-transformer**: `@huggingface/transformers` running `Xenova/all-mpnet-base-v2`, 768 dimensions to match `vector(768)` in 0003. This was already the documented fallback in docs/04 §1; it is now the default path.
+
+**Consequences.**
+- **The corpus embedded for the first time.** 1,861 vectors in 98 seconds on a laptop, no key, no account. `rfi_embedding` had been empty since the project started, which is why search had been reporting "keyword only" and why every draft and suggestion refused.
+- **Nothing leaves the machine to be embedded.** For a company that pins its database to Frankfurt, embedding a sponsor's draft text locally is the more defensible arrangement, not merely the cheaper one. Say it in the demo.
+- **`npm run seed && npm run embed` now reproduces the whole corpus with no account anywhere.** That is a stronger reproducibility claim than the one CLAUDE.md §2 rule 5 makes.
+- **Model choice mirrors the flash/pro split** ADR-006 depends on: `openai/gpt-oss-20b` drafts, `openai/gpt-oss-120b` verifies. The grader must be the stronger of the two or it is not a grader. `llama-3.3-70b-versatile` was the first choice and is not available on this account — the model list is read from the account, not assumed.
+- **Local embeddings cost a cold start.** The weights load once per process. On a laptop and in CI that is a second; in a serverless function it is paid again on every cold instance, and that is an unresolved deployment question rather than a solved one.
+- `ai_calls` records local embedding runs at zero cost with a `local:` model prefix, so the cost-per-RFI figure stays honest about what actually ran and a run's retrieval numbers can be attributed to the model that produced them.
+
+---
+
+## ADR-036 — The ablation table found a missing arm in hybrid search
+**2026-09-05 · Accepted**
+
+**Context.** With embeddings finally populated, `npm run eval` ran for the first time and produced a table that argued against the product's central technical claim:
+
+```
+| Configuration      | Recall@5 | identifier | semantic |
+| Keyword only       |    0.634 |      1.000 |    0.000 |
+| Vector only        |    0.195 |      0.000 |    0.580 |
+| Hybrid (RRF, k=60) |    0.220 |      0.000 |    0.680 |
+```
+
+Hybrid was **worse overall than keyword alone**, and scored zero on the identifier queries keyword answers perfectly — 25 of the 41 gold queries.
+
+**The cause was not fusion, tuning or `rrf_k`.** `search_considerations` (0016) has two branches: full text, and an identifier branch matching a pasted `document_ref` or `eu_trial_number` with ILIKE, because those strings are exactly what `to_tsvector` mangles. `hybrid_search` only ever had the full-text arm. A pasted document reference matched nothing in its keyword arm, the vector arm cannot match an identifier either, and the fusion of two empty results is an empty result.
+
+ADR-002 claims hybrid retrieval exists so that identifiers *and* meaning both work. That was true of `search_considerations` — which the search page calls — and false of `hybrid_search`, which drafting and suggestions call. The two functions disagreed for eighteen migrations and nothing caught it, because nothing had ever been able to run the comparison.
+
+**Decision.** `0026` adds the identifier arm to `hybrid_search` and folds it into the RRF sum at rank 1. An exact reference match is not a fuzzy signal to be blended; it is the row the user asked for by name.
+
+**Consequences.**
+- Recall@5 went from 0.220 to **0.795**, against 0.634 for keyword alone and 0.195 for vector alone. Identifier queries recovered from 0.000 to 0.944.
+- The by-type table now makes the argument it was always supposed to: keyword scores 0.000 on paraphrase, vector scores 0.000 on identifiers, and hybrid is the only column never zero.
+- **The first attempt at this migration broke search**, by using `create or replace` on the older ten-argument signature and leaving it beside the current thirteen-argument one — every named-argument call then failed as ambiguous. 0021 documents that exact hazard in capitals, three migrations earlier. `0026` drops both signatures before creating.
+- The lesson is the one docs/05 opens with, and it earned itself here: an ablation table is not a slide, it is a test. This defect was invisible to the typecheck, the unit tests, the live smoke test and the eye.

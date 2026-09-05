@@ -1,6 +1,5 @@
 import { generateObject } from 'ai'
-import { google } from '@ai-sdk/google'
-import { costUsd, models, promptHash, recordAiCall, requireAi } from './client'
+import { costUsd, languageModel, models, promptHash, recordAiCall, requireAi } from './client'
 import {
   SUGGEST_SYSTEM_PROMPT,
   buildSuggestUserMessage,
@@ -44,7 +43,7 @@ export async function generateSuggestions(request: SuggestRequest): Promise<Sugg
 
   try {
     const result = await generateObject({
-      model: google(fast),
+      model: languageModel(fast),
       schema: SuggestionsSchema,
       system: SUGGEST_SYSTEM_PROMPT,
       prompt: buildSuggestUserMessage(request),

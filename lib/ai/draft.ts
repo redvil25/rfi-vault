@@ -1,6 +1,5 @@
 import { generateObject } from 'ai'
-import { google } from '@ai-sdk/google'
-import { costUsd, models, promptHash, recordAiCall, requireAi } from './client'
+import { costUsd, languageModel, models, promptHash, recordAiCall, requireAi } from './client'
 import {
   DRAFT_SYSTEM_PROMPT, buildDraftUserMessage, draftPromptFingerprint, type DraftRequest,
 } from './prompts/draft'
@@ -46,7 +45,7 @@ export async function generateDraft(request: DraftRequest): Promise<DraftGenerat
 
   try {
     const result = await generateObject({
-      model: google(fast),
+      model: languageModel(fast),
       schema: DraftSchema,
       system: DRAFT_SYSTEM_PROMPT,
       prompt: buildDraftUserMessage(request),
@@ -104,7 +103,7 @@ export async function verifyDraft(
 
   try {
     const result = await generateObject({
-      model: google(strong),
+      model: languageModel(strong),
       schema: VerdictSchema,
       system: VERIFY_SYSTEM_PROMPT,
       prompt: buildVerifyUserMessage(draft, precedents),

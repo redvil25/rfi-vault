@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/lib/db/types'
 import { embedQuery, toVectorLiteral } from '@/lib/ai/embed'
-import { aiEnabled, serverEnv } from '@/lib/env'
+import { embeddingsEnabled, serverEnv } from '@/lib/env'
 import { log } from '@/lib/log'
 import { CATEGORY_BY_ID } from '@/lib/domain/taxonomy'
 import type { Precedent } from './types'
@@ -87,7 +87,9 @@ export async function retrievePrecedents(
   target: DraftTarget,
   supabase: SupabaseClient<Database>,
 ): Promise<RetrievalResult> {
-  if (!aiEnabled()) {
+  // Embeddings, not generation. Groq serves no embedding model, so a Groq key
+  // says nothing about whether similarity can be measured (ADR-035).
+  if (!embeddingsEnabled()) {
     return {
       ok: false,
       reason:

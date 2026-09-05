@@ -2,7 +2,7 @@ import 'server-only'
 
 import { createClient } from '@/lib/db/server'
 import { embedQuery, toVectorLiteral } from '@/lib/ai/embed'
-import { aiEnabled, serverEnv } from '@/lib/env'
+import { embeddingsEnabled, serverEnv } from '@/lib/env'
 import { log } from '@/lib/log'
 import type { Database } from '@/lib/db/types'
 import type { SearchHit, SearchParams, SearchResult } from './manual'
@@ -144,7 +144,7 @@ export async function hybridSearch(params: SearchParams): Promise<HybridResult> 
   // No query text means the user is browsing filters; there is nothing to embed
   // and keyword browse ordering is the correct behaviour.
   if (!params.q?.trim()) return fallback('no query text')
-  if (!aiEnabled()) return fallback('no model configured')
+  if (!embeddingsEnabled()) return fallback('no embedding model available')
 
   const supabase = await createClient()
   if (!(await hasEmbeddings(supabase))) return fallback('corpus not embedded yet')
