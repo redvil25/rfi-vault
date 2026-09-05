@@ -16,6 +16,7 @@
     "db:types": "supabase gen types typescript --linked > lib/db/types.ts",
     "seed": "tsx scripts/seed/run.ts",
     "eval": "tsx scripts/eval/run.ts",
+    "eval:backtest": "tsx scripts/eval/backtest.ts",
     "verify": "tsx scripts/verify/smoke.ts",
     "ingest": "tsx scripts/ingest/run.ts",
     "fixtures:pdf": "python scripts/fixtures/make_rfi_pdf.py",

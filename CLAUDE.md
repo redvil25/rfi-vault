@@ -108,6 +108,7 @@ npm run ingest -- <pdf>  # parse a CTIS RFI export and print the extraction (rea
 npm run fixtures:pdf     # regenerate fixtures/rfi-example-ctis.pdf (needs python + reportlab)
 npm run embed            # populate rfi_embedding (needs a real Gemini key)
 npm run eval             # retrieval metrics -> docs/metrics/latest.json + the ablation table
+npm run eval:backtest    # pre-submission check recall, time-travelled; states what it cannot measure
 ```
 
 **Migrations are the only source of truth for the schema.** SQL applied through

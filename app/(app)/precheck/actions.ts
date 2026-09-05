@@ -45,6 +45,8 @@ const schema = z.object({
 export interface PrecheckState {
   error?: string
   result?: PrecheckResult
+  /** Audit event id for this run, so the exported snapshot can cite it. */
+  runId?: string
   /** Echoed back so the results panel can name what was checked. */
   ranFor?: { submissionType: string; memberStates: string[] }
 }
@@ -130,6 +132,7 @@ export async function precheckAction(
 
     return {
       result,
+      runId,
       ranFor: {
         submissionType: parsed.data.submissionType,
         memberStates: parsed.data.memberStates,

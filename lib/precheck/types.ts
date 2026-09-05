@@ -82,6 +82,15 @@ export interface Fix {
   owner: TeamRole | null
 }
 
+/** How wide the corpus query had to go before it found anything to say. */
+export interface Scope {
+  id: 'EXACT' | 'ANY_SUBMISSION_TYPE' | 'ANY_MEMBER_STATE'
+  memberStates: string[]
+  submissionType: SubmissionType | null
+  /** Human phrasing for the screen. The user has to be able to tell the scopes apart. */
+  label: string
+}
+
 export interface Flag {
   id: string
   severity: Severity
@@ -95,6 +104,8 @@ export interface Flag {
   rule: MinedRule | null
   precedents: RulePrecedent[]
   fix: Fix
+  /** For a cross-section mismatch: what was found where. */
+  disagreement?: { section: string; value: string }[]
 }
 
 /** One rule's result, including the ones that did not run. */
@@ -135,6 +146,8 @@ export interface Coverage {
 export interface PrecheckResult {
   flags: Flag[]
   rules: RuleReport[]
+  /** Which corpus scope produced these rules. Stated on screen, never implied. */
+  scope: Scope
   coverage: Coverage
   counts: Record<Severity, number>
   ranAt: string

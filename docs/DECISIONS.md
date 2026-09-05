@@ -522,6 +522,24 @@ Each flag then carries the past request verbatim, the accepted sponsor response 
 - **The headline is "2 blockers, 3 likely triggers".** No score, anywhere in the product. Severity comes from evidence, not from a fitted weight: a stated gap or a placeholder is a blocker because it is a fact about *this* dossier, recurrence is softer because it is a fact about other people's.
 - **The largest rule in the corpus does not fire.** `FEE_NATIONAL_UPDATE` for Italy is 33 occurrences across 26 trials, last seen April 2025 — 16 months stale. The check greys it and says why. Demonstrating the refusal is worth more than the flag would have been.
 - **Coverage is on the screen, not in a document.** Corpus date range, the fact that every record is synthetic, and any requested Member State with no precedent at all — because there a clean result means *no data*, not *no risk*, and a user who discovers that themselves stops trusting everything else.
-- **Still no backtest number, and the deck must not claim one.** "Would have caught 61% at an 8% false-positive rate" needs the negative class that does not exist. Recall over held-out considerations is computable; a false-positive rate is not. Quoting one half without the other is worse than quoting neither.
 - Two SQL functions, no new tables. A run writes one `PRECHECK_RUN` audit event carrying the shape of the check and its verdict — never the pasted dossier text, which is the sponsor's and does not belong in an append-only table the whole team can read.
-- **Not built, and deliberately named as missing:** cross-section consistency checks (subject numbers, protocol version, IMP strength agreeing across Part I), whole-dossier upload with auto-sectioning, and an exportable signed snapshot. The first is the highest-value of the three and is the obvious next increment.
+
+**Two defects found by using it, and what they changed.**
+
+*Flags arrived with nothing attached.* The first version matched a lint finding to "the section's most recurrent **live** rule". On a section whose rules are all stale that is no rule at all, so on the flagship path — Italy, fee proof, substantial modification — every flag came back with no artefact, no owner, no wording and no precedent. The three things the writer wanted were the three things missing, and the unit tests passed throughout because they tested the pieces rather than the path. A finding is now categorised by **classifying its own text** with the same deterministic classifier ingestion uses (ADR-024), and precedent is fetched for any theme with a resolved occurrence whether or not the rule is live. Staleness governs whether a rule *fires*; it does not make the history untrue, and the accepted answer from 2025 is still the best wording anyone has. The card says how old it is.
+
+*The narrow scope is usually empty.* Measured: at (this Member State × this section) only **13 of 242** held-out requests had any live rule. So the scope widens — dropping submission type, then Member State — and the result **always states which scope produced it**. "Italy asks this" and "somebody, somewhere, asks this" are different claims; widening in silence would let the second be read as the first.
+
+**The number, and the half of it that does not exist.** `npm run eval:backtest` scores each held-out request against the corpus as it stood the day before it was issued, through the same scope ladder and staleness window the product uses:
+
+```
+Recall overall         62.4%  (151/242)
+  at exact scope       15.4%  (2/13 checks)
+  after widening       77.2%  (149/193 checks)
+  no live rule at all  36 checks — reported as such, not passed
+Themes surfaced        1.8 per section checked
+```
+
+Report both lines or neither: a check that flagged everything scores 100% recall. **The false-positive rate is not computable and must not be estimated** — the corpus holds only requests that were raised, so there is no negative class. Making it computable is a data-collection change in a real deployment, not a modelling one.
+
+**Also built, having been listed as missing.** Cross-section consistency (protocol version and date, subject count, IMP name and strength, EU trial number) — with the rule that a value found in only one pasted section is reported *not checked*, never consistent. Whole-dossier auto-sectioning, where an unrecognised heading is listed and excluded rather than filed under the nearest-looking section. And a timestamped JSON snapshot carrying scope, rule versions, every outcome and the audit event id, so a regulated team can show what it checked months later.

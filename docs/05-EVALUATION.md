@@ -8,6 +8,7 @@
 scripts/eval/
   gold-retrieval.json    50 queries × human-marked relevant consideration IDs
   gold-groundedness.json 30 RFIs for draft evaluation with precedent sets
+  backtest.ts            pre-submission check recall, time-travelled at the issue date
   run.ts                 executes all suites → docs/metrics/latest.json + markdown table
 ```
 
@@ -40,7 +41,28 @@ This second table is the argument. It shows *why* hybrid exists rather than asse
 - RRF `k` sweep: 10, 20, 40, 60, 100 → nDCG@10 curve. Report the chosen value and why.
 - Embedding dimension: 768 vs 1536 → quality gain against index size and latency. If 768 is within noise of 1536, say you chose the cheaper one deliberately.
 
-## 3. Suite B — Draft groundedness and usefulness
+## 3. Suite B — The pre-submission check, backtested
+
+`npm run eval:backtest`. Held-out split at 2025-09-01: 700 requests as history, 242 as the test set.
+
+Each held-out request is scored against the corpus **as it stood the day before it was issued**, through the same scope ladder and the same 12-month staleness window the product applies. Scoring against the whole corpus would let the check learn from the request it is being tested on, which is the most common way a backtest flatters itself.
+
+| Measure | Value |
+|---|---|
+| Recall overall | **62.4%** (151/242) |
+| — at the exact scope (this MS, this section) | 15.4% (2/13 checks) |
+| — after widening to any Member State | 77.2% (149/193 checks) |
+| — no live rule at any scope | 36 checks, reported as such rather than passed |
+| Themes surfaced per section checked | 1.8 |
+| Requests whose own text contains an absence or futurity phrase | 15.3% |
+
+**Report the two numbers together.** A check that flagged every theme scores 100% recall; 1.8 themes per section is what this recall cost. Recall on its own is not a result.
+
+**The false-positive rate is not computable, and the deck must not carry one.** The corpus holds only requests that *were* raised — sections submitted that drew no request were never recorded — so there is no negative class against which precision, specificity or a false-positive rate could be measured. Naming that limit is the honest version of this slide, and it converts into a concrete ask for a real deployment: record every section checked and whether a request followed.
+
+The exact-scope figure is the interesting one for a buyer. It says the narrow claim — "this is what Italy asks about this section" — is supportable on only 13 of 242 checks at this corpus size, and that the recall comes from the wider scope. The product states which scope it used on every result, so the user is never shown the wide answer as if it were the narrow one.
+
+## 4. Suite C — Draft groundedness and usefulness
 
 **Automatic:**
 - **Groundedness** — share of generated sentences supported by a cited precedent, per the verifier pass. Target ≥ 0.90.
@@ -52,7 +74,7 @@ This second table is the argument. It shows *why* hybrid exists rather than asse
 - Edit distance proxy: share of the draft retained after the rater's edit.
 - Time-to-response: rater writes a response from scratch versus edits the draft. **Report the measured minutes.** This is the number that converts directly into the Business Impact slide, and it is measured on your own team rather than assumed.
 
-## 4. Suite C — System quality
+## 5. Suite D — System quality
 
 | Check | Target |
 |---|---|
@@ -66,13 +88,16 @@ This second table is the argument. It shows *why* hybrid exists rather than asse
 
 Accessibility is worth a real check, not a token one: keyboard navigation, focus states, contrast, screen-reader labels on charts. A large regulated employer cares about this, and it costs an hour with shadcn/ui.
 
-## 5. The metrics slide
+## 6. The metrics slide
 
 One slide, three blocks, all numbers from `docs/metrics/latest.json`:
 
 ```
 RETRIEVAL          Recall@5  0.xx   (vector-only 0.xx, keyword-only 0.xx)
                    nDCG@10   0.xx      p95 latency  xxx ms
+
+PRE-SUBMISSION     Recall  62.4%     at 1.8 themes surfaced per section
+                   No false-positive rate: no negative class exists
 
 GENERATION         Groundedness  0.xx  Refusal accuracy  xx/xx
                    Median drafting time  x min  →  x min   (n = 30)

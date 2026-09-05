@@ -93,7 +93,33 @@ So every rule carries `first_seen` and `last_seen`, and one unseen for **12 mont
 
 This is not hypothetical on our own corpus: `FEE_NATIONAL_UPDATE` for Italy is the largest cluster in the repository at 33 occurrences, and its last sighting is April 2025. The check refuses to fire the biggest rule it has, and says why. That is the demo.
 
-### 3.4 Precedent, and turning a flag into a fix
+### 3.4 Scope, and saying how wide it went
+
+The narrow scope — this Member State, this submission type — is the honest one, and on a corpus of any realistic size it is frequently empty. The backtest below puts a number on it: at the exact scope only 13 of 242 held-out requests had any live rule at all.
+
+So the scope widens until it has something to say — dropping submission type, then Member State — and **the screen always states which scope produced the answer**. Widening in silence would be worse than not widening: "Italy asks this" and "somebody, somewhere, asks this" are different claims, and the reader has to be able to tell them apart.
+
+### 3.5 Signal (c) — cross-section consistency
+
+`lib/precheck/consistency.ts`. No corpus needed at all.
+
+Values that appear twice in a dossier have to agree: protocol version and date, planned subject numbers, IMP name and strength, EU trial number. A mismatch between the cover letter and the protocol is a routine request for information and is deterministic to detect.
+
+The discipline is in the negative case. A value found in only one of the pasted sections is reported as **not checked**, never as consistent. A green tick for a comparison that never happened is the failure this whole feature exists to avoid (ADR-025) — and the same rule governs the mined rules and the lint, so every row in the rule list is flagged, clear or skipped, with a reason.
+
+### 3.6 Whole-dossier auto-sectioning
+
+`lib/precheck/split.ts`. A writer has a document, not eleven boxes, and eleven boxes is the reason a screen like this goes unused.
+
+Split on the headings the document already carries, normalising numbering and common aliases (`ICF`, `IB`, `QP declaration`). A heading that maps onto nothing in the taxonomy — and any preamble before the first heading — is **listed to the user and left out of the check**, never filed under the nearest-looking section. Guessing there would check the cover letter against the protocol's rules, which is worse than checking nothing.
+
+### 3.7 The snapshot
+
+Every run writes one `PRECHECK_RUN` audit event carrying the shape of the check and its verdict, and the screen offers a timestamped JSON snapshot: scope used, rule versions (lint pattern count, staleness window, recurrence threshold), every rule with its outcome, every flag with its precedent record IDs, and the audit event id so the claim can be checked against the append-only trail rather than taken on the file's own word.
+
+Neither the event nor the snapshot contains the pasted dossier text. It is the sponsor's, and it has no business in an append-only table the whole team can read.
+
+### 3.8 Precedent, and turning a flag into a fix
 
 `rule_precedents()` returns the request as the regulator wrote it, the date, the trial, and the sponsor response that closed it — filtered to APPROVED/SUBMITTED and ACCEPTED, because a rejected answer is not precedent. Matching is exact on (category, section, Member State): no embeddings, so it works with no model configured and is explainable in one sentence.
 
@@ -103,9 +129,27 @@ Each flag then carries three things, and none of them is generated text:
 2. **Suggested wording** — lifted verbatim from an accepted past response, with the record it came from, behind a copy-to-clipboard button. Nobody pastes unverified generated text into a CTIS dossier; a suggestion that cannot be traced is worth less than no suggestion at all.
 3. **The owner** — `owner` from the taxonomy. Writers rarely control the missing document. They control who they chase for it.
 
-### 3.5 What the screen shows
+### 3.9 What the screen shows
 
 Flags are the hero. The headline is **"2 blockers, 3 likely triggers"**, never a score. Underneath, every mined rule is listed as flagged / clear / skipped with its reason, so coverage is visible rather than assumed — and the coverage panel states the corpus date range, that every record is synthetic, and which requested Member States have no precedent at all. For those, a clean result means *no data*, which is a different thing from *no risk* and the more dangerous of the two.
+
+### 3.10 What it measures — and the half that cannot be measured
+
+`npm run eval:backtest`. Each held-out request is scored against the corpus **as it stood the day before that request was issued**, with the same staleness window the product applies, through the same scope ladder. Scoring against the whole corpus would let the check learn from the request it is being tested on.
+
+```
+Held out               242 requests issued on or after 2025-09-01
+
+Recall overall         62.4%  (151/242)
+  at exact scope       15.4%  (2/13 checks)
+  after widening       77.2%  (149/193 checks)
+  no live rule at all  36 checks — the check says so rather than passing
+Themes surfaced        1.8 per section checked
+```
+
+**Never quote the recall on its own.** A check that flagged every theme would score 100%; "themes surfaced" is what that recall cost, and the two belong in the same sentence.
+
+**The false-positive rate is not computable and must not be estimated.** The repository holds only requests that *were* raised; sections submitted that drew no request were never recorded, so there is no negative class. Making that half computable is a data-collection change in a real deployment — record every section checked and whether a request followed — not a modelling one.
 
 ## 4. Feature 3 — Grounded draft generation
 
