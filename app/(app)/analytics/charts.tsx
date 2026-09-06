@@ -5,7 +5,7 @@ import {
   Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer,
   Tooltip, XAxis, YAxis,
 } from 'recharts'
-import type { MemberStateStat, MonthStat, Preventability } from '@/lib/analytics/query'
+import type { MemberStateStat, MonthStat } from '@/lib/analytics/query'
 
 /**
  * Chart colours.
@@ -148,69 +148,6 @@ export function MemberStateChart({ states }: { states: MemberStateStat[] }) {
           <Bar dataKey="occurrences" fill={SERIES[0]} radius={[0, 4, 4, 0]} />
         </BarChart>
       </ResponsiveContainer>
-    </div>
-  )
-}
-
-/**
- * Preventability split — one proportion, so one stacked bar rather than a pie.
- * Two series, so a legend is present and both segments are directly labelled.
- */
-export function PreventabilityBar({ preventability }: { preventability: Preventability }) {
-  const { classified, unclassified, preventable } = preventability
-  if (classified === 0) return null
-
-  // Split the classified volume only. Counting unclassified rows as
-  // "judgement-based" would file them under a verdict nobody reached.
-  const other = classified - preventable
-  const pct = (n: number) => Math.round((n / classified) * 100)
-
-  return (
-    <div>
-      <div className="flex h-8 w-full overflow-hidden rounded-md">
-        <div
-          style={{ width: `${(preventable / classified) * 100}%`, background: SERIES[0] }}
-          className="flex items-center justify-center text-xs font-medium text-white"
-          title={`Preventable: ${preventable}`}
-        >
-          {pct(preventable) >= 12 ? `${pct(preventable)}%` : ''}
-        </div>
-        {/* 2px surface gap between adjacent fills. */}
-        <div className="w-0.5 shrink-0 bg-surface" />
-        <div
-          style={{ width: `${(other / classified) * 100}%`, background: SERIES[1] }}
-          className="flex items-center justify-center text-xs font-medium text-white"
-          title={`Judgement-based: ${other}`}
-        >
-          {pct(other) >= 12 ? `${pct(other)}%` : ''}
-        </div>
-      </div>
-
-      <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs">
-        <span className="flex items-center gap-1.5">
-          <span className="size-2.5 rounded-sm" style={{ background: SERIES[0] }} aria-hidden />
-          <span className="text-muted">
-            Avoidable before submission — {preventable.toLocaleString('en-GB')}
-          </span>
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="size-2.5 rounded-sm" style={{ background: SERIES[1] }} aria-hidden />
-          <span className="text-muted">
-            Judgement-based — {other.toLocaleString('en-GB')}
-          </span>
-        </span>
-      </div>
-
-      {unclassified > 0 && (
-        <p className="mt-3 border-t border-border pt-3 text-xs text-muted">
-          {unclassified.toLocaleString('en-GB')}{' '}
-          {unclassified === 1 ? 'consideration is' : 'considerations are'} not classified and{' '}
-          {unclassified === 1 ? 'is' : 'are'} excluded from this split. The classifier declines
-          to guess, and a record it could not place says nothing either way about whether the
-          request was avoidable — counting it as judgement-based would be a verdict nobody
-          reached.
-        </p>
-      )}
     </div>
   )
 }

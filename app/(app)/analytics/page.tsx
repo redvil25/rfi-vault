@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { getCurrentUser } from '@/lib/db/server'
 import { loadAnalytics } from '@/lib/analytics/query'
-import { EffortModel, MemberStateChart, PreventabilityBar, VolumeChart } from './charts'
+import { EffortModel, MemberStateChart, VolumeChart } from './charts'
 
 export const dynamic = 'force-dynamic'
 
@@ -184,20 +184,6 @@ export default async function AnalyticsPage() {
         </p>
         <div className="rounded-lg border border-border bg-surface p-4">
           <MemberStateChart states={memberStates} />
-        </div>
-      </section>
-
-      {/* -------------------------------------------------- Preventability */}
-      <section className="mt-8">
-        <h2 className="text-base font-semibold">How much of this was avoidable</h2>
-        <p className="mt-1 mb-3 max-w-2xl text-sm text-muted">
-          Split by whether the taxonomy marks the category as avoidable — an issue a
-          completeness check before submission would have caught. Tier 1 and Tier 2 — fees
-          and document handling — account for{' '}
-          {Math.round(preventability.tier12Share * 100)}% of the classified volume on their own.
-        </p>
-        <div className="rounded-lg border border-border bg-surface p-4">
-          <PreventabilityBar preventability={preventability} />
         </div>
       </section>
 
