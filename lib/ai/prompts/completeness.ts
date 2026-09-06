@@ -1,7 +1,7 @@
 import type { RulePrecedent } from '@/lib/precheck/types'
 
 /**
- * The completeness prompt (docs/04-AI-PIPELINE.md §3.9).
+ * The completeness prompt (docs/04-AI-PIPELINE.md §3.7).
  *
  * The deterministic passes read the report for what it *says*: gaps the writer
  * admitted, values that disagree, themes this Member State keeps raising. None

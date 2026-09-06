@@ -24,7 +24,7 @@
     "setup:storage": "tsx scripts/setup/storage.ts",
     "verify:ingest": "tsx scripts/verify/ingest-e2e.ts",
     "embed": "tsx scripts/embed/run.ts",
-    "verify:precheck": "tsx scripts/verify/precheck.ts",
+    "verify:report": "tsx scripts/verify/report-check.ts",
     "verify:dashboards": "tsx scripts/verify/dashboards.ts",
     "verify:draft": "tsx scripts/verify/draft.ts",
     "verify:suggest": "tsx scripts/verify/suggest.ts"

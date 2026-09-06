@@ -1,7 +1,7 @@
 import { ALL_SECTIONS } from '@/lib/domain/taxonomy'
 
 /**
- * Whole-dossier auto-sectioning (docs/04-AI-PIPELINE.md §3.4).
+ * Sectioning a document on its own headings (docs/04-AI-PIPELINE.md §3.9).
  *
  * Pasting into one box per section is the biggest friction in this feature: a
  * writer has a document, not eleven boxes. This splits a pasted dossier on the

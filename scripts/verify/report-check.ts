@@ -1,7 +1,7 @@
 /**
  * Live check of Feature 2 against a real database.
  *
- *   npm run verify:precheck
+ *   npm run verify:report
  *
  * The lint is unit-tested and needs no database. What cannot be reached from a
  * unit test is whether `0025`'s two functions exist, whether they return the

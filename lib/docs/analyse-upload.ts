@@ -4,7 +4,8 @@ import { MAX_UPLOAD_BYTES, RFI_BUCKET } from '@/lib/ingest/constants'
 import { log } from '@/lib/log'
 
 /**
- * Uploading a document to be *read* rather than filed.
+ * Uploading a document to be *read* rather than filed
+ * (docs/04-AI-PIPELINE.md §3.8).
  *
  * The ingestion path (lib/ingest/commit.ts) keeps what it uploads: a filed RFI
  * export is a record, and the stored PDF is its source. The two analysis

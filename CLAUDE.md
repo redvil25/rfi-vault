@@ -103,7 +103,7 @@ npm run seed             # regenerate synthetic corpus (deterministic, seed=42)
 npm run seed -- --keep   # add to the existing corpus instead of wiping it
 npm run verify           # live smoke test: RLS isolation, search, audit immutability
 npm run verify:ingest    # live end-to-end ingestion test against the fixture PDF
-npm run verify:precheck  # live pre-submission check: mined rules, staleness, precedent
+npm run verify:report    # live Clinical Report Check: mined rules, staleness, precedent
 npm run verify:dashboards # live analytics + audit checks, incl. proving audit immutability
 npm run verify:draft     # live drafting refusal, status machine, and the approve-to-share loop
 npm run verify:suggest   # live suggestions: the gate, distinct strategies, citation validity

@@ -1,5 +1,5 @@
 /**
- * Cross-section consistency (docs/04-AI-PIPELINE.md §3.3).
+ * Cross-section consistency (docs/04-AI-PIPELINE.md §3.6).
  *
  * Values that appear in more than one place in a dossier have to agree. The
  * planned number of subjects on the application form has to match the protocol;

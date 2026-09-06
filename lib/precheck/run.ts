@@ -33,16 +33,24 @@ import type {
 import { SEVERITY_ORDER } from './types'
 
 /**
- * The pre-submission check (docs/04-AI-PIPELINE.md §3).
+ * The Clinical Report Check (docs/04-AI-PIPELINE.md §3).
  *
- * Four deterministic passes, none of which call a model:
+ * Four deterministic passes over the document, then one that calls a model:
  *
- *   1. Lint the text the writer pasted, for the gap they admitted themselves.
+ *   1. Lint the text, for the gap the writer admitted themselves.
  *   2. Check values that must agree across sections — protocol version, subject
  *      numbers, IMP name and strength.
  *   3. Mine the corpus for what this Member State and section actually gets
- *      asked, scoped to submissions like this one.
+ *      asked, scoped to submissions like this one, and gated on whether the
+ *      document already addresses the theme.
  *   4. Attach the verbatim precedent and the response that closed it.
+ *   5. Ask a model which of those past requests the document would not answer —
+ *      the only pass that can see what a document never mentions, because
+ *      absence has no phrase to match on.
+ *
+ * The first four need no key and no embeddings: both queries are plain SQL. The
+ * fifth degrades to "did not run", stated on screen, rather than letting four
+ * passes read as five.
  *
  * The output leads with flags, not with a score, and it reports what did *not*
  * run alongside what did.

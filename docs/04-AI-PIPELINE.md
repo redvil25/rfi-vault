@@ -47,7 +47,9 @@ Calibrate the thresholds against the gold set rather than guessing, and state in
 
 For the top 20 fused results, one `gemini-2.5-flash` call scores relevance to the query and returns a reordering with a one-line justification per result. Adds roughly 600–900 ms. Measure the nDCG@10 gain in `npm run eval`; **keep it only if it wins on the numbers, and report the measured delta either way.** Reporting a rejected optimisation with its number is a stronger technical signal than silently shipping it.
 
-## 3. Feature 2 — The pre-submission check
+## 3. Feature 2 — Clinical Report Check
+
+A clinical document goes in as a PDF; what comes out is a list of flags, each traceable to a request a regulator actually raised. Renamed from "the pre-submission check" when the input became a document rather than eleven boxes of pasted text (ADR-038).
 
 Retrieval, not prediction. The first version of this feature blended a hand-authored rule engine with a similarity term and a base rate and published a 0-100 score; it was withdrawn (ADR-033). The corpus holds only requests that *were* raised, so there is no negative class to fit against, no AUC to report and no false-positive rate to quote. A number without those is decoration.
 
@@ -93,33 +95,65 @@ So every rule carries `first_seen` and `last_seen`, and one unseen for **12 mont
 
 This is not hypothetical on our own corpus: `FEE_NATIONAL_UPDATE` for Italy is the largest cluster in the repository at 33 occurrences, and its last sighting is April 2025. The check refuses to fire the biggest rule it has, and says why. That is the demo.
 
-### 3.4 Scope, and saying how wide it went
+### 3.4 Gating a mined rule on the document in front of the writer
+
+`lib/precheck/topic.ts`.
+
+A mined rule describes what a Member State asks about a section. On its own that says nothing about *this* document, and firing it unconditionally returned Italy's fee themes for any text at all — the word "health" included. The flag looked like a finding about the dossier and was not one.
+
+Two gates stand between a mined rule and a flag. **Substance**: a section under 25 words is too thin to assess, and its rules are reported skipped with the word count rather than passed. **Topic**: a rule fires only when the text does not already address the theme, with the subject terms derived from the category's own label and `artefactKey`, so this adds no domain assertion of its own.
+
+A fired flag then leads with what is absent — *"Nothing in this section mentions fee, proof, national, payment"* — which is a claim about the document. A held-back rule says which gate stopped it: **clear** when the text covers the theme, **skipped** when the text was too thin to judge. The two are different and a reader has to be able to tell them apart.
+
+### 3.5 Scope, and saying how wide it went
 
 The narrow scope — this Member State, this submission type — is the honest one, and on a corpus of any realistic size it is frequently empty. The backtest below puts a number on it: at the exact scope only 13 of 242 held-out requests had any live rule at all.
 
 So the scope widens until it has something to say — dropping submission type, then Member State — and **the screen always states which scope produced the answer**. Widening in silence would be worse than not widening: "Italy asks this" and "somebody, somewhere, asks this" are different claims, and the reader has to be able to tell them apart.
 
-### 3.5 Signal (c) — cross-section consistency
+### 3.6 Signal (c) — cross-section consistency
 
 `lib/precheck/consistency.ts`. No corpus needed at all.
 
 Values that appear twice in a dossier have to agree: protocol version and date, planned subject numbers, IMP name and strength, EU trial number. A mismatch between the cover letter and the protocol is a routine request for information and is deterministic to detect.
 
-The discipline is in the negative case. A value found in only one of the pasted sections is reported as **not checked**, never as consistent. A green tick for a comparison that never happened is the failure this whole feature exists to avoid (ADR-025) — and the same rule governs the mined rules and the lint, so every row in the rule list is flagged, clear or skipped, with a reason.
+The discipline is in the negative case. A value found in only one section of the document is reported as **not checked**, never as consistent. A green tick for a comparison that never happened is the failure this whole feature exists to avoid (ADR-025) — and the same rule governs the mined rules and the lint, so every row in the rule list is flagged, clear or skipped, with a reason.
 
-### 3.6 Whole-dossier auto-sectioning
+### 3.7 Signal (d) — what the document never mentions
+
+`lib/ai/completeness.ts`, and the only pass here that calls a model.
+
+The other three read the document for what it *says*: gaps the writer admitted, values it states twice, themes it mentions. None of them can see what a document simply never brings up, because absence has no phrase to match on.
+
+That makes this the pass most able to invent, so it is bounded hardest. The model is given the document's sections and the past requests already retrieved for them, and may report something missing **only** when one of those requests asked for it. It is told plainly that it is not judging whether this is a good clinical report and has no standing to say what one must contain — it is deciding which of *these specific past questions* the document would not answer. Every finding cites the record ids that asked, and a finding whose citations do not resolve to a retrieved record is dropped, exactly as in Features 3 and 6.
+
+`openQuestions` is deliberately narrow: material the document *points at* but did not supply, or an extraction that visibly broke. It is for evidence you cannot see, not for evidence that is not there. Left broader, the model routed every finding into it, and a report containing nothing would have read as merely unclear.
+
+This pass needs a generation key. Without one it does not run, and the screen says so rather than letting three passes read as four.
+
+### 3.8 Reading the PDF, and not keeping it
+
+`lib/docs/analyse-upload.ts`.
+
+The browser uploads to Storage on a one-shot signed URL, so the bytes never cross the application server — hosts cap request bodies at 4.5 MB and a real clinical report exceeds that. The server then reads the object's text and **deletes it in a `finally`**, whether the read succeeded or not.
+
+Ingestion keeps what it uploads, because a filed RFI export is a record and the stored PDF is its source. This is the opposite: a document handed over to be checked, which this repository has no business keeping a copy of. What survives a run is the audit event saying a check happened.
+
+Format is decided by magic bytes, never by the content type sent with the upload, which is client-supplied. A PDF with no text layer is refused rather than checked — there is no OCR here, and an empty extraction would produce a confident report that the document contains nothing.
+
+### 3.9 Sectioning on the document's own headings
 
 `lib/precheck/split.ts`. A writer has a document, not eleven boxes, and eleven boxes is the reason a screen like this goes unused.
 
 Split on the headings the document already carries, normalising numbering and common aliases (`ICF`, `IB`, `QP declaration`). A heading that maps onto nothing in the taxonomy — and any preamble before the first heading — is **listed to the user and left out of the check**, never filed under the nearest-looking section. Guessing there would check the cover letter against the protocol's rules, which is worse than checking nothing.
 
-### 3.7 The snapshot
+### 3.10 The snapshot
 
 Every run writes one `PRECHECK_RUN` audit event carrying the shape of the check and its verdict, and the screen offers a timestamped JSON snapshot: scope used, rule versions (lint pattern count, staleness window, recurrence threshold), every rule with its outcome, every flag with its precedent record IDs, and the audit event id so the claim can be checked against the append-only trail rather than taken on the file's own word.
 
-Neither the event nor the snapshot contains the pasted dossier text. It is the sponsor's, and it has no business in an append-only table the whole team can read.
+Neither the event nor the snapshot contains the document text. It is the sponsor's, and it has no business in an append-only table the whole team can read.
 
-### 3.8 Precedent, and turning a flag into a fix
+### 3.11 Precedent, and turning a flag into a fix
 
 `rule_precedents()` returns the request as the regulator wrote it, the date, the trial, and the sponsor response that closed it — filtered to APPROVED/SUBMITTED and ACCEPTED, because a rejected answer is not precedent. Matching is exact on (category, section, Member State): no embeddings, so it works with no model configured and is explainable in one sentence.
 
@@ -129,11 +163,11 @@ Each flag then carries three things, and none of them is generated text:
 2. **Suggested wording** — lifted verbatim from an accepted past response, with the record it came from, behind a copy-to-clipboard button. Nobody pastes unverified generated text into a CTIS dossier; a suggestion that cannot be traced is worth less than no suggestion at all.
 3. **The owner** — `owner` from the taxonomy. Writers rarely control the missing document. They control who they chase for it.
 
-### 3.9 What the screen shows
+### 3.12 What the screen shows
 
 Flags are the hero. The headline is **"2 blockers, 3 likely triggers"**, never a score. Underneath, every mined rule is listed as flagged / clear / skipped with its reason, so coverage is visible rather than assumed — and the coverage panel states the corpus date range, that every record is synthetic, and which requested Member States have no precedent at all. For those, a clean result means *no data*, which is a different thing from *no risk* and the more dangerous of the two.
 
-### 3.10 What it measures — and the half that cannot be measured
+### 3.13 What it measures — and the half that cannot be measured
 
 `npm run eval:backtest`. Each held-out request is scored against the corpus **as it stood the day before that request was issued**, with the same staleness window the product applies, through the same scope ladder. Scoring against the whole corpus would let the check learn from the request it is being tested on.
 
