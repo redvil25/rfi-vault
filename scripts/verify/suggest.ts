@@ -35,6 +35,27 @@ const ANSWERABLE =
   'IT - No payment receipt has been identified for this submission. Please submit the proof ' +
   'of payment together with the reference number used for the transfer.'
 
+/**
+ * The same request, answered the way the corpus's accepted responses answer it.
+ *
+ * The first version of this fixture said the receipt "quotes the payment
+ * reference" without stating it, and the reviewer returned IMPROVE — correctly,
+ * because every accepted precedent names the POL number. The fixture was wrong,
+ * not the review, and a fixture that is only nearly adequate tests nothing.
+ */
+const ANSWERED_WELL = `Consideration:
+IT - No payment receipt has been identified for this submission. Please submit the proof of
+payment together with the reference number used for the transfer.
+Sponsor response:
+The bank transfer receipt referencing POL417283 has been uploaded in section Proof of payment.`
+
+/** The same request, answered with nothing. The right answer is IMPROVE. */
+const ANSWERED_BADLY = `Consideration:
+IT - No payment receipt has been identified for this submission. Please submit the proof of
+payment together with the reference number used for the transfer.
+Sponsor response:
+Noted. We will look into this and revert in due course.`
+
 /** Deliberately outside anything the repository holds. The right answer is a refusal. */
 const NO_PRECEDENT =
   'Please provide the validated bioanalytical method report for the quantification of ' +
@@ -76,7 +97,7 @@ async function main() {
 
   check('was not refused', !outcome.refused, outcome.refused ? outcome.reason : '')
 
-  if (!outcome.refused) {
+  if (!outcome.refused && outcome.mode === 'OPTIONS') {
     check('produced at least one option', outcome.options.length >= 1)
     check('produced no more than three', outcome.options.length <= 3)
     check(
@@ -119,6 +140,49 @@ async function main() {
     for (const o of outcome.options) {
       const graded = o.groundedness === null ? 'ungraded' : `${Math.round(o.groundedness * 100)}%`
       console.log(`        ${o.strategy.padEnd(8)} ${graded.padStart(8)}  ${o.headline}`)
+    }
+  }
+
+  // ------------------------------------------------------- Review mode
+  //
+  // A document carrying a response should be reviewed, not answered. Both
+  // verdicts are exercised: a reviewer that only ever says "adequate" and one
+  // that only ever finds fault are equally useless.
+  console.log('\nA request that already carries a response')
+  for (const [label, text, want] of [
+    ['answered well', ANSWERED_WELL, 'ADEQUATE'],
+    ['answered badly', ANSWERED_BADLY, 'IMPROVE'],
+  ] as const) {
+    const reviewed = await suggestResponses({ text, section: 'Regulatory' }, db, {
+      actorId: '00000000-0000-0000-0000-000000000000',
+    })
+    check(
+      `${label}: reviewed rather than answered`,
+      !reviewed.refused && reviewed.mode === 'REVIEW',
+      reviewed.refused ? reviewed.reason : `mode was ${reviewed.mode}`,
+    )
+    if (reviewed.refused || reviewed.mode !== 'REVIEW') continue
+
+    check(`${label}: verdict is ${want}`, reviewed.review.verdict === want, reviewed.review.summary)
+    check(
+      `${label}: the response it reviewed is the one supplied`,
+      reviewed.sponsorResponseText.length > 0,
+    )
+    if (want === 'IMPROVE') {
+      check(
+        'every improvement cites a record that was retrieved',
+        reviewed.review.improvements.length > 0 &&
+          reviewed.review.improvements.every((i) => i.citations.length > 0),
+      )
+      // Anything offered for pasting must survive the check this product runs
+      // on pasted text (ADR-037).
+      check(
+        'the rewritten response carries no placeholder text',
+        reviewed.review.revised.length === 0 || !/x{4,}|\[insert/i.test(reviewed.review.revised),
+        reviewed.review.revised.slice(0, 80),
+      )
+    } else {
+      check('an adequate response is not given busywork', reviewed.review.improvements.length === 0)
     }
   }
 

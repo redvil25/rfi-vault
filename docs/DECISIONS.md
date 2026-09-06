@@ -705,3 +705,31 @@ So the gate moves to `lexical_precedents` (0027): full text finds candidates, `s
 - `0028` drops `rfi_embedding`, `hybrid_search` and `vector_search`. `pgvector` stays installed: it costs nothing unused, and restoring the vector arm should be a migration against our own schema rather than against the extension.
 - **`npm run embed` no longer exists**, and `npm run seed` is now the whole corpus setup. Nothing in the product needs a key to retrieve — generation is the only thing that does.
 - **This is reversible and costed.** The measurement that would justify reinstating the vector arm is in docs/05, and 0027's gate would sit beside a cosine one rather than being replaced by it.
+
+---
+
+## ADR-040 — Suggestions reviews a response that exists, and the report check says what to write
+**2026-09-06 · Accepted · Extends ADR-034 and ADR-038**
+
+**Context.** Two gaps between what the screens did and what they were for.
+
+The Clinical Report Check named what a document was missing and stopped there. A writer told "the cover letter does not state who signed it" still has to work out how to say it — and the accepted responses in the precedent already show how.
+
+Suggestions always proposed three fresh options. But a CTIS export carries `Consideration:` **and** `Sponsor response:`, and most of what a writer uploads is already answered. Offering three alternatives to a response they have written answers a question nobody asked.
+
+**Decision.**
+
+Every missing item now carries a **`suggestion`**: the sentence to add, the detail to state, the document to name — in the register of the accepted responses, with a copy button.
+
+Suggestions branches on whether a response is present. `parseCtisRfi` already extracts one from an export, and a plain paste carrying a `Sponsor response:` label is split on it, because a writer pasting two labelled blocks out of an email has none of the export's scaffolding.
+
+- **No response** → three strategically distinct options, unchanged (ADR-034).
+- **A response** → review it. Verdict `ADEQUATE` or `IMPROVE`, what it already does right, each improvement citing the precedent that justifies it, and the response rewritten with those changes applied.
+
+**ADEQUATE is a real answer and is shown as one.** The prompt says style and word choice are not grounds for IMPROVE — only substance: something asked for and not supplied, a claim without the artefact behind it, an answer to a different question. A screen that always finds work teaches the reader to ignore it.
+
+**Consequences.**
+- An improvement whose citations do not resolve to a retrieved record is dropped, and an `IMPROVE` verdict left with no improvements becomes `ADEQUATE` — there is nothing to act on.
+- **The rewritten response is checked by Feature 2's lint before it is offered** (ADR-037). The model wrote `POL[insert number]` inside a worked example on the first run; anything offered for pasting has to survive the check this product runs on pasted text, so a placeholder drops the rewrite while keeping the improvements.
+- `verify:suggest` exercises both verdicts. A reviewer that only ever says "adequate" and one that only ever finds fault are equally useless, and only running both catches either.
+- **A verification fixture was wrong and the model was right.** The "answered well" case said the receipt "quotes the payment reference" without stating it, and the review returned IMPROVE — correctly, because every accepted precedent names the POL number. The fixture was fixed, not the prompt. A fixture that is only nearly adequate tests nothing.

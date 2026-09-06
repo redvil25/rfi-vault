@@ -36,6 +36,7 @@ export type AiPurpose =
   | 'DRAFT'
   | 'SUGGEST'
   | 'COMPLETENESS'
+  | 'REVIEW'
   | 'VERIFY'
   | 'RERANK'
 

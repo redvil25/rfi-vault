@@ -3,6 +3,7 @@ import type { Database } from '@/lib/db/types'
 import { serverEnv } from '@/lib/env'
 import { log } from '@/lib/log'
 import { generateSuggestions } from '@/lib/ai/suggest'
+import { reviewResponse } from '@/lib/ai/review'
 import { verifyDraft } from '@/lib/ai/draft'
 import { groundednessOf } from '@/lib/ai/prompts/verify'
 import {
@@ -207,6 +208,71 @@ export async function suggestResponses(
     }
   }
 
+  // ---- the document already carries a response: review it ----------------
+  //
+  // Proposing three fresh options for a request that has been answered answers
+  // a question nobody asked. The writer has a draft and wants to know whether
+  // it will do (ADR-040).
+  if (parsed.sponsorResponseText) {
+    try {
+      const { payload, model } = await reviewResponse({
+        considerationText: parsed.text,
+        sponsorResponseText: parsed.sponsorResponseText,
+        section: parsed.section ?? parsed.sectionCandidates[0] ?? null,
+        memberState: parsed.memberState,
+        category: parsed.category,
+        precedents: retrieval.precedents,
+      })
+
+      // Same rule as everywhere else: a citation naming a record that was not
+      // retrieved is a fabricated reference, and an improvement that loses all
+      // of them is dropped rather than shown unsourced.
+      const retrievedIds = new Set(retrieval.precedents.map((p) => p.considerationId))
+      const improvements = payload.improvements
+        .map((i) => ({ ...i, citations: i.citations.filter((id) => retrievedIds.has(id)) }))
+        .filter((i) => i.citations.length > 0)
+
+      // Anything offered for pasting has to survive the check this product runs
+      // on pasted text (ADR-037). The rewritten response is offered with a copy
+      // button, so a placeholder in it would have this feature handing a writer
+      // the exact defect Feature 2 exists to catch.
+      const revisedIsUsable =
+        payload.revised.trim().length > 0 &&
+        !lintSection(payload.revised).some((f) => f.kind === 'PLACEHOLDER')
+
+      return {
+        refused: false,
+        mode: 'REVIEW',
+        review: {
+          // An IMPROVE verdict whose every improvement was dropped is an
+          // ADEQUATE verdict: there is nothing left to act on.
+          verdict: improvements.length > 0 ? 'IMPROVE' : 'ADEQUATE',
+          summary: payload.summary,
+          strengths: payload.strengths,
+          improvements,
+          revised: improvements.length > 0 && revisedIsUsable ? payload.revised : '',
+        },
+        sponsorResponseText: parsed.sponsorResponseText,
+        precedents: retrieval.precedents,
+        maxSimilarity: retrieval.maxSimilarity,
+        parsed,
+        model,
+      }
+    } catch (err) {
+      log.error('suggest.review_failed', { section: parsed.section }, err)
+      return {
+        refused: true,
+        reason:
+          'The model could not review this response. Nothing was written, and the precedent ' +
+          'below is what the repository holds — it is still usable on its own.',
+        escalateTo: escalateTo(parsed.category),
+        nearest: retrieval.precedents.slice(0, 3),
+        maxSimilarity: retrieval.maxSimilarity,
+        parsed,
+      }
+    }
+  }
+
   let generation
   try {
     generation = await generateSuggestions({
@@ -266,6 +332,7 @@ export async function suggestResponses(
 
   return {
     refused: false,
+    mode: 'OPTIONS',
     options: inStrategyOrder(graded),
     openQuestions: generation.payload.openQuestions,
     precedents: retrieval.precedents,

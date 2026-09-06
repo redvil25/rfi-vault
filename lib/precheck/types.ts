@@ -150,6 +150,8 @@ export interface Completeness {
   missing: {
     item: string
     why: string
+    /** The change to make, drawn from how past sponsors phrased it. */
+    suggestion: string
     section: string
     /** Consideration ids of the past requests that asked for this. */
     citations: string[]

@@ -100,6 +100,14 @@ export type GradedOption = SuggestionOption & {
  */
 export interface ParsedRequest {
   text: string
+  /**
+   * The sponsor's own response, when the document already carries one.
+   *
+   * A CTIS export usually does, and its presence is what decides which of the
+   * two things this screen does: propose options for an unanswered request, or
+   * review the answer that is already written.
+   */
+  sponsorResponseText: string | null
   memberState: string | null
   section: string | null
   sectionPart: 'PART_I' | 'PART_II' | null
@@ -115,6 +123,16 @@ export interface ParsedRequest {
   siblings: { index: number; text: string }[]
 }
 
+/** The model's read on a response the writer has already drafted. */
+export interface ResponseReview {
+  verdict: 'ADEQUATE' | 'IMPROVE'
+  summary: string
+  strengths: string[]
+  improvements: { issue: string; suggestion: string; citations: string[] }[]
+  /** The response rewritten with the improvements applied. Empty when adequate. */
+  revised: string
+}
+
 export type SuggestOutcome =
   | {
       refused: true
@@ -128,6 +146,19 @@ export type SuggestOutcome =
     }
   | {
       refused: false
+      /** The document already carried a response, so it was reviewed rather than answered. */
+      mode: 'REVIEW'
+      review: ResponseReview
+      /** The response as written, so the screen can show what was reviewed. */
+      sponsorResponseText: string
+      precedents: Precedent[]
+      maxSimilarity: number
+      parsed: ParsedRequest
+      model: string
+    }
+  | {
+      refused: false
+      mode: 'OPTIONS'
       options: GradedOption[]
       openQuestions: string[]
       precedents: Precedent[]

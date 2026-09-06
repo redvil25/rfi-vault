@@ -49,12 +49,18 @@ Rules, in order of priority:
    for the same thing are a single finding carrying several citations — that is what
    the citation list is for. Never emit two items for the same gap, and never label
    one "duplicate": if you are about to, merge them instead.
-6. "why" describes THIS document, not the past request. Say what this text does or
+6. "suggestion" is the change to make: the sentence to add, the detail to state, the
+   document to name — in the register of the accepted responses, which are short,
+   factual and declarative. Not "provide more detail": say what to write. Where a
+   value is specific to this submission and no precedent establishes it, describe
+   what the writer must supply rather than inventing a stand-in, and NEVER write
+   placeholder text like "XXXXX" or "[insert reference]".
+7. "why" describes THIS document, not the past request. Say what this text does or
    does not contain and what was asked for before. Restating a past consideration
    verbatim — "the reference does not match POL129558" — is wrong when this document
    has no reference at all: that sentence is about somebody else's dossier.
-7. Findings are for human review. Never phrase one as a compliance determination.
-8. ALWAYS return all three keys — missing, addressed, openQuestions. When there is
+8. Findings are for human review. Never phrase one as a compliance determination.
+9. ALWAYS return all three keys — missing, addressed, openQuestions. When there is
    nothing to report under one, return an empty array. Never omit a key.
 
 Vocabulary is fixed and must be used exactly: consideration, request for information,

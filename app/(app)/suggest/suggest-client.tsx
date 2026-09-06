@@ -7,6 +7,7 @@ import {
   STRATEGY_LABEL,
   type GradedOption,
   type ParsedRequest,
+  type ResponseReview,
   type SuggestOutcome,
 } from '@/lib/suggest/types'
 import { MAX_UPLOAD_BYTES, RFI_BUCKET } from '@/lib/ingest/constants'
@@ -201,6 +202,99 @@ function OptionCard({
   )
 }
 
+/**
+ * A response the writer has already drafted, reviewed rather than replaced.
+ *
+ * ADEQUATE is a real answer and is shown as one. A screen that always finds
+ * something to change teaches the reader to ignore it, so a clean verdict gets
+ * the same prominence as a critical one.
+ */
+function ReviewPanel({
+  review,
+  responseText,
+  precedents,
+}: {
+  review: ResponseReview
+  responseText: string
+  precedents: Precedent[]
+}) {
+  const byId = new Map(precedents.map((p) => [p.considerationId, p]))
+  const adequate = review.verdict === 'ADEQUATE'
+
+  return (
+    <section className="mt-6">
+      <div
+        className={`rounded-lg border bg-surface p-4 ${
+          adequate ? 'border-ok/50' : 'border-border border-l-4 border-l-foreground/40'
+        }`}
+      >
+        <h2 className="text-base font-semibold">
+          {adequate
+            ? 'This response looks adequate'
+            : `${review.improvements.length} thing${
+                review.improvements.length === 1 ? '' : 's'
+              } to change before sending`}
+        </h2>
+        <p className="mt-1.5 text-[13px] leading-relaxed">{review.summary}</p>
+      </div>
+
+      <div className="mt-3 rounded-lg border border-border p-4">
+        <h3 className="text-[11px] font-medium tracking-wide text-muted uppercase">
+          The response as written
+        </h3>
+        <p className="mt-1.5 text-[13px] leading-relaxed whitespace-pre-wrap">{responseText}</p>
+      </div>
+
+      {review.strengths.length > 0 && (
+        <div className="mt-3 rounded-lg border border-border p-4">
+          <h3 className="text-sm font-semibold">What it already does right</h3>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-[13px]">
+            {review.strengths.map((str) => (
+              <li key={str}>{str}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {review.improvements.length > 0 && (
+        <ul className="mt-3 space-y-3">
+          {review.improvements.map((imp) => (
+            <li key={imp.issue} className="rounded-lg border border-border bg-surface p-4">
+              <h4 className="text-sm font-semibold">{imp.issue}</h4>
+              <p className="mt-1.5 text-[13px] leading-relaxed">
+                <span className="text-muted">Change:</span> {imp.suggestion}
+              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <CopyButton text={imp.suggestion} label="Copy the change" />
+                <span className="text-[11px] text-muted">
+                  from{' '}
+                  {imp.citations
+                    .map((id) => byId.get(id)?.euTrialNumber ?? id.slice(0, 8))
+                    .join(', ')}
+                </span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {review.revised.trim().length > 0 && (
+        <div className="mt-3 rounded-lg border border-border bg-surface p-4">
+          <h3 className="text-sm font-semibold">The response with those changes applied</h3>
+          <p className="mt-2 rounded-md border border-border px-3 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap">
+            {review.revised}
+          </p>
+          <div className="mt-2">
+            <CopyButton text={review.revised} label="Copy to box" />
+          </div>
+        </div>
+      )}
+
+      <PrecedentList precedents={precedents} title="Precedent this was reviewed against" />
+    </section>
+  )
+}
+
 function Outcome({ outcome }: { outcome: SuggestOutcome }) {
   if (outcome.refused) {
     const owner = outcome.escalateTo ? (TEAM_LABEL[outcome.escalateTo] ?? outcome.escalateTo) : null
@@ -227,6 +321,23 @@ function Outcome({ outcome }: { outcome: SuggestOutcome }) {
           title="Closest records found — not close enough to answer from, but worth reading"
         />
       </section>
+    )
+  }
+
+  if (outcome.mode === 'REVIEW') {
+    return (
+      <>
+        <p className="mt-6 text-[13px] text-muted">
+          This document already carried a sponsor response, so it was reviewed rather than
+          answered. Closest precedent {outcome.maxSimilarity.toFixed(2)} · {outcome.model}
+        </p>
+        <ReviewPanel
+          review={outcome.review}
+          responseText={outcome.sponsorResponseText}
+          precedents={outcome.precedents}
+        />
+        <ReadAs parsed={outcome.parsed} />
+      </>
     )
   }
 

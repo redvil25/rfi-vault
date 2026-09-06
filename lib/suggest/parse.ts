@@ -1,5 +1,6 @@
 import { MEMBER_STATE_BY_CODE, PART_I_SECTIONS } from '@/lib/domain/taxonomy'
 import { classifyConsideration } from '@/lib/ingest/classify'
+import { parseCtisRfi } from '@/lib/ingest/parse-ctis'
 import { CATEGORY_BY_ID } from '@/lib/domain/taxonomy'
 import type { ParsedRequest } from './types'
 
@@ -82,6 +83,29 @@ export function splitConsiderations(raw: string): string[] {
   return parts
 }
 
+/**
+ * Split a plain paste that carries a response but not the CTIS scaffolding.
+ *
+ * `parseCtisRfi` needs the export's structure — the numbered heading, the
+ * application section part — and a writer who pastes just the two labelled
+ * blocks out of an email has neither. Without this they got three fresh options
+ * for a request they had already answered.
+ */
+function splitOnResponseLabel(raw: string): { request: string; response: string } | null {
+  const label = /\n[ \t]*(?:sponsor +response|our +response|response|reply)[ \t]*:?[ \t]*\n/i
+  const m = label.exec(raw)
+  if (!m) return null
+
+  const request = raw
+    .slice(0, m.index)
+    .replace(/^[ \t]*(?:consideration|request for information|request)[ \t]*:?[ \t]*\n/i, '')
+    .trim()
+  const response = raw.slice(m.index + m[0].length).trim()
+
+  if (wordCount(request) < MIN_REQUEST_WORDS || wordCount(response) < 3) return null
+  return { request, response }
+}
+
 function sectionPartFor(section: string | null): 'PART_I' | 'PART_II' | null {
   if (!section) return null
   return (PART_I_SECTIONS as readonly string[]).includes(section) ? 'PART_I' : 'PART_II'
@@ -95,8 +119,41 @@ function sectionPartFor(section: string | null): 'PART_I' | 'PART_II' | null {
  * the field in only when they left it blank.
  */
 export function parseRequest(raw: string, sectionHint?: string | null): ParsedRequest {
-  const all = splitConsiderations(raw)
-  const text = (all[0] ?? raw).trim()
+  // A CTIS export carries its own labels — "Consideration:", "Sponsor
+  // response:", the application section part — and the ingestion parser already
+  // reads them. Using it here means an uploaded export is understood exactly as
+  // it would be if filed, rather than being treated as anonymous prose, and it
+  // is what tells this screen whether a response already exists.
+  const exported = parseCtisRfi(raw)
+  const first = exported.considerations[0]
+
+  if (first && first.considerationText.trim().length > 0) {
+    const section = sectionHint ?? first.section
+    const taxonomyFor = CATEGORY_BY_ID.get(first.category)
+    return {
+      text: first.considerationText.trim(),
+      sponsorResponseText: first.sponsorResponseText?.trim() || null,
+      memberState: first.memberState ?? memberStateFrom(first.considerationText),
+      section,
+      sectionPart: section ? sectionPartFor(section) : (first.sectionPart ?? null),
+      sectionCandidates: sectionHint
+        ? [sectionHint]
+        : section
+          ? [section]
+          : (taxonomyFor && taxonomyFor.sections.length <= MAX_SECTION_CANDIDATES
+              ? taxonomyFor.sections
+              : []),
+      category: first.category,
+      categoryConfidence: first.categoryConfidence,
+      siblings: exported.considerations
+        .slice(1)
+        .map((c, i) => ({ index: i + 2, text: c.considerationText })),
+    }
+  }
+
+  const labelled = splitOnResponseLabel(raw)
+  const all = splitConsiderations(labelled ? labelled.request : raw)
+  const text = (all[0] ?? labelled?.request ?? raw).trim()
 
   const classified = classifyConsideration({
     text,
@@ -123,6 +180,7 @@ export function parseRequest(raw: string, sectionHint?: string | null): ParsedRe
 
   return {
     text,
+    sponsorResponseText: labelled?.response ?? null,
     memberState: memberStateFrom(text),
     section,
     sectionPart: part,

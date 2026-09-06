@@ -36,6 +36,12 @@ export const CompletenessSchema = z.object({
       z.object({
         item: z.string().min(1).max(200),
         why: z.string().min(1).max(500),
+        /**
+         * What to actually write. The finding is only half an answer: a writer
+         * told a detail is absent still has to work out how to state it, and
+         * the accepted responses in the precedent already show how.
+         */
+        suggestion: z.string().min(1).max(600),
         section: z.string().max(80),
         /**
          * Record ids, not objects.

@@ -121,7 +121,11 @@ export async function suggestAction(
       actor_team: user.team,
       entity_type: 'suggestion_run',
       entity_id: runId,
-      action: outcome.refused ? 'SUGGEST_REFUSED' : 'SUGGESTED',
+      action: outcome.refused
+        ? 'SUGGEST_REFUSED'
+        : outcome.mode === 'REVIEW'
+          ? 'RESPONSE_REVIEWED'
+          : 'SUGGESTED',
       reason: outcome.refused ? outcome.reason.slice(0, 500) : null,
       metadata: {
         file_name: fileName,
@@ -131,8 +135,15 @@ export async function suggestAction(
         category: outcome.parsed.category,
         category_confidence: outcome.parsed.categoryConfidence,
         max_similarity: outcome.maxSimilarity,
-        options: outcome.refused ? 0 : outcome.options.length,
-        strategies: outcome.refused ? [] : outcome.options.map((o) => o.strategy),
+        mode: outcome.refused ? null : outcome.mode,
+        options: !outcome.refused && outcome.mode === 'OPTIONS' ? outcome.options.length : 0,
+        strategies:
+          !outcome.refused && outcome.mode === 'OPTIONS'
+            ? outcome.options.map((o) => o.strategy)
+            : [],
+        verdict: !outcome.refused && outcome.mode === 'REVIEW' ? outcome.review.verdict : null,
+        improvements:
+          !outcome.refused && outcome.mode === 'REVIEW' ? outcome.review.improvements.length : 0,
         model: outcome.refused ? null : outcome.model,
       },
     })

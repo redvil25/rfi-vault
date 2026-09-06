@@ -150,7 +150,7 @@ describe('citations the schema cannot check', () => {
     ])
     const outcome = await suggestResponses({ text: REQUEST, section: 'Regulatory' }, db, opts)
     expect(outcome.refused).toBe(false)
-    if (outcome.refused) return
+    if (outcome.refused || outcome.mode !== 'OPTIONS') return
     expect(outcome.options[0].citations.map((c) => c.considerationId)).toEqual(['p1'])
   })
 
@@ -165,7 +165,7 @@ describe('citations the schema cannot check', () => {
     ])
     const outcome = await suggestResponses({ text: REQUEST, section: 'Regulatory' }, db, opts)
     expect(outcome.refused).toBe(false)
-    if (outcome.refused) return
+    if (outcome.refused || outcome.mode !== 'OPTIONS') return
     expect(outcome.options.map((o) => o.strategy)).toEqual(['SUPPLY'])
   })
 
@@ -198,7 +198,7 @@ describe('options that are not answers', () => {
     ])
     const outcome = await suggestResponses({ text: REQUEST, section: 'Regulatory' }, db, opts)
     expect(outcome.refused).toBe(false)
-    if (outcome.refused) return
+    if (outcome.refused || outcome.mode !== 'OPTIONS') return
     // Suggesting it would hand the writer the exact defect Feature 2 exists to catch.
     expect(outcome.options.map((o) => o.strategy)).toEqual(['COMMIT'])
   })
@@ -211,7 +211,7 @@ describe('options that are not answers', () => {
     ])
     const outcome = await suggestResponses({ text: REQUEST, section: 'Regulatory' }, db, opts)
     expect(outcome.refused).toBe(false)
-    if (outcome.refused) return
+    if (outcome.refused || outcome.mode !== 'OPTIONS') return
     expect(outcome.options.map((o) => o.strategy)).toEqual(['SUPPLY'])
   })
 
@@ -237,7 +237,7 @@ describe('the options themselves', () => {
     ])
     const outcome = await suggestResponses({ text: REQUEST, section: 'Regulatory' }, db, opts)
     expect(outcome.refused).toBe(false)
-    if (outcome.refused) return
+    if (outcome.refused || outcome.mode !== 'OPTIONS') return
     expect(outcome.options.map((o) => o.strategy)).toEqual(['SUPPLY', 'JUSTIFY', 'COMMIT'])
   })
 
@@ -250,7 +250,7 @@ describe('the options themselves', () => {
     ])
     const outcome = await suggestResponses({ text: REQUEST, section: 'Regulatory' }, db, opts)
     expect(outcome.refused).toBe(false)
-    if (outcome.refused) return
+    if (outcome.refused || outcome.mode !== 'OPTIONS') return
     expect(outcome.options.map((o) => o.strategy)).toEqual(['SUPPLY', 'COMMIT'])
   })
 
@@ -259,7 +259,7 @@ describe('the options themselves', () => {
     generated([option({ strategy: 'SUPPLY' })])
     const outcome = await suggestResponses({ text: REQUEST, section: 'Regulatory' }, db, opts)
     expect(outcome.refused).toBe(false)
-    if (outcome.refused) return
+    if (outcome.refused || outcome.mode !== 'OPTIONS') return
     expect(outcome.options).toHaveLength(1)
   })
 
@@ -268,7 +268,7 @@ describe('the options themselves', () => {
     generated([option({ strategy: 'SUPPLY' })], ['Which tariff applied on the submission date?'])
     const outcome = await suggestResponses({ text: REQUEST, section: 'Regulatory' }, db, opts)
     expect(outcome.refused).toBe(false)
-    if (outcome.refused) return
+    if (outcome.refused || outcome.mode !== 'OPTIONS') return
     expect(outcome.parsed.memberState).toBe('IT')
     expect(outcome.openQuestions).toHaveLength(1)
   })
@@ -290,7 +290,7 @@ describe('grading', () => {
     const outcome = await suggestResponses({ text: REQUEST, section: 'Regulatory' }, db, opts)
     expect(verifyMock).toHaveBeenCalledTimes(2)
     expect(outcome.refused).toBe(false)
-    if (outcome.refused) return
+    if (outcome.refused || outcome.mode !== 'OPTIONS') return
     expect(outcome.options.every((o) => o.groundedness === 1)).toBe(true)
     expect(outcome.verifierUnavailable).toBeNull()
   })
@@ -301,7 +301,7 @@ describe('grading', () => {
     verifyMock.mockRejectedValue(new Error('verifier unreachable'))
     const outcome = await suggestResponses({ text: REQUEST, section: 'Regulatory' }, db, opts)
     expect(outcome.refused).toBe(false)
-    if (outcome.refused) return
+    if (outcome.refused || outcome.mode !== 'OPTIONS') return
     expect(outcome.options).toHaveLength(1)
     // Never null groundedness *and* a silent screen: the UI has to be told.
     expect(outcome.options[0].groundedness).toBeNull()
@@ -317,7 +317,7 @@ describe('grading', () => {
     })
     expect(verifyMock).not.toHaveBeenCalled()
     expect(outcome.refused).toBe(false)
-    if (outcome.refused) return
+    if (outcome.refused || outcome.mode !== 'OPTIONS') return
     expect(outcome.options[0].groundedness).toBeNull()
     expect(outcome.verifierUnavailable).toContain('skipped')
   })
