@@ -34,7 +34,10 @@ async function upload(page: Page, pdf: string): Promise<string> {
   await expect(submit).toBeEnabled({ timeout: 60_000 })
   await submit.click()
 
-  await expect(page.locator('h2').first()).toBeVisible({ timeout: 210_000 })
+  // Whichever path ran, the first heading in the result is the signal it arrived:
+  // h2 for a review verdict or a refusal, h3 for the first option card — the
+  // options path carries no h2 of its own.
+  await expect(page.locator('main :is(h2, h3)').first()).toBeVisible({ timeout: 210_000 })
   return page.locator('main').innerText()
 }
 
@@ -45,7 +48,8 @@ test('a consideration with no response gets options', async ({ page }) => {
 
   console.log('\n───── consideration only ─────\n' + body.slice(0, 1400) + '\n')
 
-  expect(body).toContain('grounded in')
+  expect(body).toContain('Option 1')
+  expect(body).toContain('Precedent these were built from')
   expect(body).not.toContain('reviewed rather than answered')
   // At least one of the three strategies came back.
   expect(body).toMatch(/Supply the document|Justify what was already filed|Acknowledge and commit/)

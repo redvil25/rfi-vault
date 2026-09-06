@@ -343,26 +343,6 @@ function Outcome({ outcome }: { outcome: SuggestOutcome }) {
 
   return (
     <section className="mt-6">
-      <div className="rounded-lg border border-border bg-surface p-4">
-        <h2 className="text-base font-semibold">
-          {outcome.options.length} option{outcome.options.length === 1 ? '' : 's'}, grounded in{' '}
-          {outcome.precedents.length} precedent
-          {outcome.precedents.length === 1 ? '' : 's'}
-        </h2>
-        <p className="mt-1 text-[13px] text-muted">
-          Closest precedent {outcome.maxSimilarity.toFixed(2)} · {outcome.model}
-          {outcome.options.length < 3 &&
-            ' · fewer than three, because the precedent did not support the others. Padding them would have meant inventing one.'}
-        </p>
-        {outcome.verifierUnavailable && (
-          <p className="mt-2 rounded-md border border-border px-3 py-2 text-[13px]">
-            These options are <strong className="font-medium">ungraded</strong> —{' '}
-            {outcome.verifierUnavailable}. Read every sentence against the citations yourself.
-          </p>
-        )}
-        <ReadAs parsed={outcome.parsed} />
-      </div>
-
       {outcome.parsed.siblings.length > 0 && (
         <p className="mt-3 rounded-md border border-border px-3.5 py-2.5 text-[13px]">
           <strong className="font-medium">
