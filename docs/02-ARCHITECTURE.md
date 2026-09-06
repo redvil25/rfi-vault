@@ -46,28 +46,32 @@ The solution overview promises that every RFI is stored in three layers. This is
 |---|---|---|---|
 | **Original document** | Supabase Storage, private bucket, signed URLs | Provenance, auditability, "show me the source" | Open original PDF at the exact page |
 | **Structured fields** | Postgres columns on `rfi_consideration` | Filtering, faceting, analytics, RLS | Filter by section / country / category / date |
-| **Meaning** | `vector(768)` column with an HNSW index | Semantic recall | Search by intent, not keywords |
+| **Language** | `tsvector` (GIN) and trigrams (`pg_trgm` GIN) on the same rows | Recall by wording, and a 0..1 score the confidence gate refuses on | Full-text and identifier search; `matched_on` says which |
 
-All three are queryable together in a single SQL statement. That is the reason for choosing Postgres: a filtered hybrid search ("semantic match, but only Part II, only Italy, only approved responses, only last 18 months") is one query — not an application-layer join across a vector store and a relational store. **Make this point when a judge asks why not Pinecone.**
+The third layer was `vector(768)` behind an HNSW index until ADR-039 removed it. What it bought was paraphrase, and losing it is costed in `docs/05-EVALUATION.md` §2 rather than glossed. What survives is that all three layers are still **one table, one query**.
+
+That is still the reason for choosing Postgres, and it is the stronger version of the argument now, not the weaker one: a filtered search ("only Part II, only Italy, only approved responses, only the last 18 months, ranked") is one statement with RLS applied inside it — not an application-layer join across a vector store and a relational store, kept in sync by hand. **Make this point when a judge asks why not Pinecone**, and follow it with the honest half: we ran the vector arm, measured it, and removed it because we could not operate it reliably on the host.
 
 ## 4. Request flows
 
 ### 4.1 Ingestion
 
 ```
-Upload PDF/DOCX
+Upload PDF (text layer; scans are refused, ADR-021)
+  → browser uploads straight to Storage on a one-shot signed URL
   → parse text (unpdf) + keep page offsets
-  → LLM structured extraction (generateObject + Zod) → considerations[]
+  → regex extraction of the CTIS layout → considerations[]   (no model)
+  → rule-based classification into the taxonomy → category, owner_team
   → deterministic post-validation (IDs match regex, dates parse, MS code valid)
-  → human-in-the-loop review screen for low-confidence extractions
-  → insert rfi_document + rfi_consideration rows
-  → embed consideration_text and sponsor_response_text separately
-  → generate tsvector
+  → human-in-the-loop review screen before anything is filed
+  → insert rfi_document + rfi_consideration rows; fts is a generated column
   → emit audit event INGESTED
 ```
 
-Two details worth defending in the demo:
+Three details worth defending in the demo:
 - **The extraction step has a review screen.** Auto-extraction with a confidence gate and a human approval step is exactly how a regulated organisation would deploy this. Showing that screen is worth more than showing a higher extraction accuracy.
+- **A CTIS export needs no model to parse.** Fixed labels and repeating blocks mean a regex extracts every field with zero hallucination surface — and a reviewer can audit a regex, where they cannot audit a prompt. The LLM seam stays behind `extractDocument()` for non-CTIS layouts.
+- **Nothing is embedded.** The row is searchable the moment it is written, because `fts` is a generated column and the trigram index is on the text itself. There is no second index to fall behind (ADR-039).
 
 ### 4.2 Search (Feature 1)
 
@@ -103,16 +107,17 @@ The output is **a list of flags, never a score**. "2 blockers, 3 likely triggers
 
 ```
 RFI arrives (ingested or pasted)
-  → hybrid retrieve top-k precedent (same section, prefer same MS, prefer APPROVED + ACCEPTED)
-  → confidence gate:  max_similarity < τ  →  REFUSE, escalate, explain why
-  → generateObject(gemini-2.5-flash) with strict grounding prompt
+  → lexical_precedents: top-k (same section, prefer same MS, APPROVED + ACCEPTED only)
+  → confidence gate:  max lexicalScore < 0.25  →  REFUSE, escalate, explain why
+  → generateObject(gpt-oss-120b) with strict grounding prompt
        returns { draft, citations[], deltas[], confidence, open_questions[] }
+  → drop any citation naming a record that was not retrieved
   → delta detection: what differs between this RFI and each precedent
        (member state, fee amount, document version, date, trial phase)
-  → verifier pass (gemini-2.5-pro): every factual claim must map to a cited chunk
-       → groundedness score; unsupported sentences highlighted in the UI
+  → verifier pass (qwen3.8-27b — a different family, not a bigger sibling):
+       every factual claim must map to a cited record → groundedness score
   → present as a DRAFT requiring human approval — never auto-submit
-  → on approval: response is written back into the repository and re-embedded
+  → on approval: status flips to APPROVED and it is precedent immediately
 ```
 
 The refusal path and the verifier pass are the features that win the room. Demo the refusal deliberately: type an RFI with no precedent and show the system decline to answer. **Every other team will demo a confident answer. Demoing a confident "I don't know" is the differentiator.**
@@ -135,6 +140,8 @@ DRAFT ──submit for review──► IN_REVIEW ──approve──► APPROVED
 ```
 
 Every transition records actor, role, timestamp, and reason. The viewer filters by section and by team, matching the RBAC model in `docs/01-DOMAIN.md` §7.
+
+The viewer lives at `/audit` and is **not in the sidebar**. The trail itself is not optional — it is a database guarantee, written on every state change whether or not anyone is looking — but browsing it is an administrator's task rather than one of the five things a regulatory writer does daily, and a nav item is scarce space. Reach it by URL; the demo does.
 
 ## 5. Security and access control
 

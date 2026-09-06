@@ -16,25 +16,27 @@ Validation RFIs run on a hard clock. Missing it can invalidate the application a
 
 | # | Feature | What it does |
 |---|---|---|
-| 1 | **Search** | Postgres full text plus an identifier branch for document references and trial numbers — the strings full text handles worst and the ones people actually paste. Returns precedent considerations and their approved responses. The vector arm was removed in ADR-039; docs/05 keeps what that cost. |
+| 1 | **Search** | Postgres full text plus an identifier branch for document references and trial numbers — the strings full text handles worst and the ones people actually paste. Every row says why it matched. Faceted by application part, Member State, **owning team**, category, document type, therapeutic area, IMP, protocol code, phase and submission type, all counted live. The vector arm was removed in ADR-039; docs/05 keeps what that cost. |
 | 2 | **Clinical Report Check** | Upload a clinical document as a PDF before you file it. It sections itself on its own headings. A deterministic lint reads the wording for gaps the writer already admitted (*not attached*, *will be provided*, `XXX`); rules mined from the corpus by (Member State × section × submission type) say what this country actually asks; and cross-section checks catch a protocol version or subject count that disagrees between documents. Every flag carries the past request verbatim, the response that closed it, the artefact to produce and who to chase. Rules unseen for 12 months are greyed, not fired. No score — **62.4% recall at 1.8 themes surfaced per section**, time-travelled, with the uncomputable half named. |
 | 3 | **Grounded draft generation** | RAG over approved, accepted precedent. Cites every claim, flags differences from precedent, and **refuses to draft when no sufficient precedent exists**. An independent verifier model scores every sentence for support. |
-| 6 | **Suggestions** | Upload a request for information that just arrived, as a PDF. Precedent is retrieved from the same application section, and up to three options are proposed — *supply the document*, *justify what was filed*, *commit to a date* — each cited to the records it was built from, each with the reason not to pick it. Below the similarity threshold it refuses and escalates. Citations that name records outside the retrieved set are dropped, and an option left with none is discarded. |
+| 6 | **Suggestions** | Upload a request for information that just arrived, as a PDF. It branches on whether a sponsor response is already in it. **Not answered yet** → up to three strategically distinct options — *supply the document*, *justify what was filed*, *commit to a date* — each cited, each with the reason not to pick it. **Already answered** → a review: `ADEQUATE` or `IMPROVE`, what it gets right, each improvement citing the precedent that justifies it, and the response rewritten. Below the threshold it refuses and escalates. Citations naming records outside the retrieved set are dropped, an option left with none is discarded, and anything offered for pasting must survive Feature 2's own lint. |
 | 4 | **Analytics** | Which sections and countries generate the most RFIs, recurrence patterns, clock analytics, and the preventable share. |
 | 5 | **Audit trail** | Append-only, enforced by database trigger. Draft → review → approve → submit, scoped by team and by section. Approved responses feed back into the repository. |
 
 ## Stack
 
-Next.js 16 (App Router) · React 19 · TypeScript · Tailwind v4 + shadcn/ui · Supabase Postgres + tsvector + pg_trgm + RLS (EU region) · Groq via AI SDK v7 · GitHub Actions CI
+Next.js 16 (App Router) · React 19 · TypeScript · Tailwind v4 + shadcn/ui · Supabase Postgres + tsvector + pg_trgm + RLS (eu-central-1) · Groq via AI SDK v7 · GitHub Actions CI · Vercel, pinned to fra1
 
-Deliberately host-agnostic — a plain Next.js application with no platform-specific runtime dependencies.
+Written host-agnostically even though the host is now chosen: a plain Next.js application, no proprietary runtime APIs. `vercel.json` pins the region and nothing else depends on it.
+
+**Search, ingestion, classification, the report check and precedent retrieval need no API key at all.** Only generation does, and when it is unavailable the features that depend on it refuse and say so rather than degrading quietly.
 
 ## Getting started
 
 ```bash
 git clone <repo> && cd rfi-vault
 npm install
-cp .env.example .env.local        # fill in Supabase + Gemini keys
+cp .env.example .env.local        # Supabase keys; a GROQ_API_KEY only if you want generation
 npm run db:migrate                # apply supabase/migrations
 npm run seed                      # deterministic synthetic corpus (seed = 42)
 npm run dev

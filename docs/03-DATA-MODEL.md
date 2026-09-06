@@ -75,25 +75,36 @@ create table rfi_consideration (
   unique (document_id, consideration_number)
 );
 
--- Two embeddings per consideration: question-space and answer-space.
-create table rfi_embedding (
-  id                uuid primary key default gen_random_uuid(),
-  consideration_id  uuid not null references rfi_consideration(id) on delete cascade,
-  kind              text not null check (kind in ('CONSIDERATION','RESPONSE')),
-  content           text not null,
-  embedding         vector(768) not null,
-  fts               tsvector generated always as (to_tsvector('english', content)) stored,
-  unique (consideration_id, kind)
-);
-
-create index rfi_embedding_hnsw on rfi_embedding
-  using hnsw (embedding vector_cosine_ops) with (m = 16, ef_construction = 64);
-create index rfi_embedding_fts  on rfi_embedding using gin (fts);
 create index rfi_cons_section   on rfi_consideration (section_part, section);
 create index rfi_cons_ms        on rfi_consideration (member_state);
 create index rfi_cons_category  on rfi_consideration (category);
 create index rfi_cons_trgm      on rfi_consideration using gin (consideration_text gin_trgm_ops);
 ```
+
+0003 also created `rfi_embedding` — two `vector(768)` rows per consideration,
+question-space and answer-space, behind an HNSW index. **`0028` dropped that
+table** along with `hybrid_search` and `vector_search` (ADR-039). Retrieval is
+lexical now, and `rfi_cons_trgm` in the list above — which has been there since
+0003 for a different purpose — is what the confidence gate scores on.
+
+`pgvector` stays installed. It costs nothing unused, and restoring the vector
+arm should be a migration against our own schema rather than against the
+extension.
+
+### 0029_team_filter.sql — the owning team as a filter
+
+No new columns. `owner_team` has been on `rfi_consideration` since 0003 and is
+written from `category.owner` in the taxonomy by both the seed and the ingestion
+classifier, so the column already *is* the team-per-category mapping. `0029`
+adds `f_owner_team` to `search_considerations` and `search_facets`, an
+`owner_team` facet, and an index to keep a team-only browse off a sequential
+scan.
+
+Filtering the column beats expanding a team into its category list: one
+predicate, and it cannot drift from the ownership the row was filed under
+(ADR-024). It is also the column the RLS policies key work-in-progress
+visibility on, so "this team's considerations" is a notion the database already
+has rather than a second one invented for search.
 
 ### 0025_precheck_mining.sql — the pre-submission check
 
@@ -208,71 +219,63 @@ create policy audit_read_own_team on audit_events for select
 
 **Test these policies.** A Playwright test that signs in as an Affiliate and confirms an RA Clinical draft is invisible is a thirty-second demo moment worth real Technical Implementation points.
 
-### 0008_hybrid_search.sql — the core SQL function
+### 0016 → 0029 `search_considerations` — the search function
 
 ```sql
-create or replace function hybrid_search(
-  query_text   text,
-  query_embed  vector(768),
-  match_count  int     default 10,
-  f_section    text    default null,
-  f_member_state text  default null,
-  f_part       section_part default null,
-  f_category   text    default null,
-  f_from       timestamptz default null,
-  rrf_k        int     default 60
-)
-returns table (
-  consideration_id uuid,
-  kind             text,
-  vector_rank      int,
-  fts_rank         int,
-  rrf_score        numeric,
-  vector_similarity numeric
-)
-language sql stable as $$
-with base as (
-  select e.id, e.consideration_id, e.kind, e.embedding, e.fts
-  from rfi_embedding e
-  join rfi_consideration c on c.id = e.consideration_id
-  join rfi_document d      on d.id = c.document_id
-  where (f_section     is null or c.section      = f_section)
-    and (f_member_state is null or c.member_state = f_member_state)
-    and (f_part        is null or c.section_part = f_part)
-    and (f_category    is null or c.category     = f_category)
-    and (f_from        is null or d.issued_at   >= f_from)
-),
-vec as (
-  select id, consideration_id, kind,
-         row_number() over (order by embedding <=> query_embed) as rank,
-         1 - (embedding <=> query_embed) as similarity
-  from base
-  order by embedding <=> query_embed
-  limit 50
-),
-kw as (
-  select id, consideration_id, kind,
-         row_number() over (
-           order by ts_rank_cd(fts, websearch_to_tsquery('english', query_text)) desc
-         ) as rank
-  from base
-  where fts @@ websearch_to_tsquery('english', query_text)
-  limit 50
-)
-select
-  coalesce(vec.consideration_id, kw.consideration_id),
-  coalesce(vec.kind, kw.kind),
-  vec.rank::int,
-  kw.rank::int,
-  (coalesce(1.0/(rrf_k + vec.rank), 0) + coalesce(1.0/(rrf_k + kw.rank), 0))::numeric,
-  coalesce(vec.similarity, 0)::numeric
-from vec full outer join kw on vec.id = kw.id
-order by 5 desc
-limit match_count;
-$$;
+search_considerations(
+  q text, f_part section_part, f_section text, f_member_state text,
+  f_category text, f_phase rfi_phase, f_submission_type submission_type,
+  f_status response_status, f_from timestamptz, f_to timestamptz,
+  f_therapeutic_area text, f_imp_name text, f_protocol_code text,
+  f_owner_team team_role, sort text, lim int, off int
+) -> ( ...every column the result card renders..., rank real, matched_on text,
+       total_count bigint )
 ```
 
-Reciprocal Rank Fusion is used because it needs no score normalisation between two incomparable scales (cosine distance and `ts_rank_cd`). `k = 60` is the standard value from the original RRF paper — tune it in `npm run eval` and put the tuning curve on a slide.
+Two branches, fused in one round trip with the filters, the sort, the page and
+RLS:
+
+- **full text** — `websearch_to_tsquery` against the stored `fts` column, ranked
+  by `ts_rank_cd`;
+- **identifiers** — `document_ref` and `eu_trial_number` matched with ILIKE,
+  scored `10 + text_rank` so an exact reference always outranks a text hit.
+
+`matched_on` comes back with every row — `identifier`, `text`,
+`identifier + text`, or `browse` — because a result the user cannot explain is a
+result they cannot trust.
+
+### 0027_lexical_precedents.sql — the function the confidence gate refuses on
+
+```sql
+lexical_precedents(
+  query_text text, f_section text, f_part section_part,
+  f_approved_only boolean, match_count int
+) -> ( consideration_id uuid, lexical_score numeric, matched_on text )
+```
+
+Features 3 and 6 do not call the search function. They call this one, which
+filters to APPROVED/SUBMITTED with outcome ACCEPTED — a rejected answer is not
+precedent — and returns a **true 0..1** score: `similarity()` from pg_trgm over
+shared wording, backed by the `rfi_cons_trgm` GIN index, with an exact document
+reference scoring 1.
+
+**The column is `lexical_score`, never `similarity`.** It measures shared
+wording, not shared meaning, and a reader who confuses the two will set
+`DRAFT_LEXICAL_THRESHOLD` wrong. On this corpus answerable requests score
+0.36–1.00 and requests with no precedent score 0.00; the threshold is 0.25,
+sitting in that gap.
+
+### What used to be here
+
+This section described `hybrid_search`: Reciprocal Rank Fusion at `k = 60` over
+cosine distance and `ts_rank_cd`, with an identifier arm added in `0026` after
+the ablation table found it missing (ADR-036). `0028` dropped the function
+(ADR-039).
+
+RRF was the right tool while there were two incomparable scales to fuse. With
+one lexical scale there is nothing to fuse, and the cost of that simplification
+is on the table in `docs/05-EVALUATION.md` §2 rather than left out of it:
+Recall@5 0.795 → 0.634, paraphrase 0.680 → 0.000, identifiers 0.944 → 1.000.
 
 ## 2. Synthetic corpus design
 

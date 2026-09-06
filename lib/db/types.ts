@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.17"
+    PostgrestVersion: "14.5"
   }
   graphql_public: {
     Tables: {
@@ -343,41 +343,6 @@ export type Database = {
           },
         ]
       }
-      rfi_embedding: {
-        Row: {
-          consideration_id: string
-          content: string
-          embedding: string
-          fts: unknown
-          id: string
-          kind: string
-        }
-        Insert: {
-          consideration_id: string
-          content: string
-          embedding: string
-          fts?: unknown
-          id?: string
-          kind: string
-        }
-        Update: {
-          consideration_id?: string
-          content?: string
-          embedding?: string
-          fts?: unknown
-          id?: string
-          kind?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "rfi_embedding_consideration_id_fkey"
-            columns: ["consideration_id"]
-            isOneToOne: false
-            referencedRelation: "rfi_consideration"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       trial: {
         Row: {
           created_at: string
@@ -458,6 +423,14 @@ export type Database = {
         Args: never
         Returns: Database["public"]["Enums"]["team_role"]
       }
+      keyword_search: {
+        Args: { match_count?: number; query_text: string }
+        Returns: {
+          consideration_id: string
+          kind: string
+          rank: number
+        }[]
+      }
       lexical_precedents: {
         Args: {
           f_approved_only?: boolean
@@ -488,61 +461,6 @@ export type Database = {
           resolved_hits: number
           section: string
           section_part: Database["public"]["Enums"]["section_part"]
-        }[]
-      }
-      rule_precedents: {
-        Args: {
-          f_category: string
-          f_member_states?: string[]
-          f_section?: string
-          f_submission_type?: Database["public"]["Enums"]["submission_type"]
-          match_count?: number
-        }
-        Returns: {
-          consideration_id: string
-          consideration_text: string
-          document_ref: string
-          eu_trial_number: string
-          issued_at: string
-          member_state: string
-          outcome: Database["public"]["Enums"]["rfi_outcome"]
-          protocol_code: string
-          response_status: Database["public"]["Enums"]["response_status"]
-          section: string
-          sponsor_response_text: string
-        }[]
-      }
-      hybrid_search: {
-        Args: {
-          f_approved_only?: boolean
-          f_category?: string
-          f_from?: string
-          f_imp_name?: string
-          f_member_state?: string
-          f_part?: Database["public"]["Enums"]["section_part"]
-          f_protocol_code?: string
-          f_section?: string
-          f_therapeutic_area?: string
-          match_count?: number
-          query_embed: string
-          query_text: string
-          rrf_k?: number
-        }
-        Returns: {
-          consideration_id: string
-          fts_rank: number
-          kind: string
-          rrf_score: number
-          vector_rank: number
-          vector_similarity: number
-        }[]
-      }
-      keyword_search: {
-        Args: { match_count?: number; query_text: string }
-        Returns: {
-          consideration_id: string
-          kind: string
-          rank: number
         }[]
       }
       rfi_stats_by_category: {
@@ -583,12 +501,35 @@ export type Database = {
           unanswered: number
         }[]
       }
+      rule_precedents: {
+        Args: {
+          f_category: string
+          f_member_states?: string[]
+          f_section?: string
+          f_submission_type?: Database["public"]["Enums"]["submission_type"]
+          match_count?: number
+        }
+        Returns: {
+          consideration_id: string
+          consideration_text: string
+          document_ref: string
+          eu_trial_number: string
+          issued_at: string
+          member_state: string
+          outcome: Database["public"]["Enums"]["rfi_outcome"]
+          protocol_code: string
+          response_status: Database["public"]["Enums"]["response_status"]
+          section: string
+          sponsor_response_text: string
+        }[]
+      }
       search_considerations: {
         Args: {
           f_category?: string
           f_from?: string
           f_imp_name?: string
           f_member_state?: string
+          f_owner_team?: Database["public"]["Enums"]["team_role"]
           f_part?: Database["public"]["Enums"]["section_part"]
           f_phase?: Database["public"]["Enums"]["rfi_phase"]
           f_protocol_code?: string
@@ -633,6 +574,7 @@ export type Database = {
         Args: {
           f_imp_name?: string
           f_member_state?: string
+          f_owner_team?: Database["public"]["Enums"]["team_role"]
           f_part?: Database["public"]["Enums"]["section_part"]
           f_protocol_code?: string
           f_therapeutic_area?: string
@@ -642,14 +584,6 @@ export type Database = {
           count: number
           facet: string
           value: string
-        }[]
-      }
-      vector_search: {
-        Args: { match_count?: number; query_embed: string }
-        Returns: {
-          consideration_id: string
-          kind: string
-          similarity: number
         }[]
       }
     }
@@ -680,12 +614,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -709,11 +643,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -734,11 +668,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -759,11 +693,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -776,11 +710,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }

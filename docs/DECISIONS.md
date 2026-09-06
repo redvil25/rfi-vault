@@ -733,3 +733,61 @@ Suggestions branches on whether a response is present. `parseCtisRfi` already ex
 - **The rewritten response is checked by Feature 2's lint before it is offered** (ADR-037). The model wrote `POL[insert number]` inside a worked example on the first run; anything offered for pasting has to survive the check this product runs on pasted text, so a placeholder drops the rewrite while keeping the improvements.
 - `verify:suggest` exercises both verdicts. A reviewer that only ever says "adequate" and one that only ever finds fault are equally useless, and only running both catches either.
 - **A verification fixture was wrong and the model was right.** The "answered well" case said the receipt "quotes the payment reference" without stating it, and the review returned IMPROVE — correctly, because every accepted precedent names the POL number. The fixture was fixed, not the prompt. A fixture that is only nearly adequate tests nothing.
+
+---
+
+## ADR-041 — Team is a filter on the corpus; the audit trail is not a menu item
+**2026-09-06 · Accepted · Extends ADR-024**
+
+**Context.** Two changes to what the sidebar and the search page offer.
+
+The four user groups named in the problem statement — RA Clinical, Affiliates, CTA
+Management, EU Submission Hub — were everywhere in the data model and nowhere in
+the interface. `owner_team` drives RBAC, drives escalation routing, and is written
+on every consideration, but there was no way to ask the obvious question: *what is
+my team on the hook for?*
+
+Meanwhile the sidebar carried six items, and the audit trail viewer was one of
+them. It is not a screen a regulatory writer opens; it is a screen an auditor or a
+coordinator opens, occasionally, on purpose.
+
+**Decision.**
+
+**Team is a filter on `owner_team`, not a derived category list.** The column is
+written from `category.owner` in the taxonomy by both the seed and the ingestion
+classifier, so it already *is* the team-per-category mapping. Expanding a team
+into `category in (...)` would compute the same answer from a second copy of the
+mapping that can drift from the first. `0029` adds `f_owner_team` to
+`search_considerations` and `search_facets`, plus an `owner_team` facet so the
+dropdown carries live counts like every other one.
+
+It is also the column the RLS policies key work-in-progress visibility on, which
+means "this team's considerations" is a notion the database already reasons about
+rather than a second one invented for the search page. The filter narrows what is
+returned and never widens what is readable: selecting another team still shows
+only that team's approved and submitted work.
+
+**The audit trail leaves the sidebar and keeps its route.** The guarantee is in
+the database — an append-only table with an `UPDATE`/`DELETE` trigger and a
+statement-level `TRUNCATE` guard — and it holds whether or not there is a link to
+it. What was removed is a menu item, not a control.
+
+**Consequences.**
+- Affiliate owns 411 of 952 considerations, RA Clinical 214, CTA Management 176,
+  EU Submission Hub 145. The Pareto in the taxonomy weights shows up in the
+  interface for the first time.
+- **6 considerations have no team.** They are `UNCLASSIFIED`, so `owner_team` is
+  null, and they are excluded from the facet rather than filed under a guessed
+  owner — the same rule as ADR-025 and ADR-032, one field over.
+- The demo gains a beat and loses a click: Beat 1 sets the Team filter to show
+  recurrence within one group, and Beat 5 opens `/audit` by URL.
+- `TEAM_LABELS` and `TEAM_ROLES` now live in the taxonomy. Four screens had
+  hand-copied the same map; this adds a fifth caller rather than a fifth copy.
+
+**And a CI assertion that had stopped being true.** The migration-replay job
+asserted `hybrid_search`::regproc, which `0028` dropped three commits before
+(ADR-039), so the database job failed on a function nothing calls. It now asserts
+the five objects features actually call, and — the reverse — that the vector
+objects have *stayed* removed. An assertion that does not track what runs is worse
+than no assertion: it fails for the wrong reason and teaches the team to ignore a
+red build.

@@ -60,12 +60,42 @@ jobs:
       - name: Replay every migration from zero
         run: supabase db reset
 
+      # One line per SQL object a feature calls by name. `hybrid_search` was
+      # here until 0028 dropped it (ADR-039) and this step went red on a
+      # function nothing calls any more — the assertion has to track what
+      # actually runs or it stops meaning anything.
       - name: Assert the objects the application calls actually exist
         run: |
           psql "$DB_URL" -v ON_ERROR_STOP=1 -c "select 'search_considerations'::regproc;"
           psql "$DB_URL" -v ON_ERROR_STOP=1 -c "select 'search_facets'::regproc;"
-          psql "$DB_URL" -v ON_ERROR_STOP=1 -c "select 'hybrid_search'::regproc;"
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -c "select 'lexical_precedents'::regproc;"
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -c "select 'mined_rules'::regproc;"
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -c "select 'rule_precedents'::regproc;"
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -c "select 'consume_rate_limit'::regproc;"
           psql "$DB_URL" -v ON_ERROR_STOP=1 -c "select fts from rfi_consideration limit 0;"
+        env:
+          DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+      # The reverse assertion. 0028 dropped the vector arm and pgvector stays
+      # installed on purpose, so nothing errors if a migration quietly brings
+      # one of these back — it would just start costing what ADR-039 removed.
+      - name: Assert the removed vector objects have stayed removed
+        run: |
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -c "
+            do \$\$
+            declare bad text;
+            begin
+              select string_agg(name, ', ') into bad
+              from unnest(array['hybrid_search','vector_search']) as name
+              where to_regproc(name) is not null;
+              if bad is not null then
+                raise exception 'ADR-039 removed these and something re-added them: %', bad;
+              end if;
+              if to_regclass('public.rfi_embedding') is not null then
+                raise exception 'rfi_embedding is back; 0028 dropped it (ADR-039)';
+              end if;
+            end
+            \$\$;"
         env:
           DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
 
@@ -147,7 +177,14 @@ jobs:
   e2e:
     name: End-to-end
     runs-on: ubuntu-latest
-    # Enable once Playwright specs exist (Phase 3). Requires repo secrets.
+    # Four specs exist (e2e/), so the old reason for this gate is gone. The
+    # remaining one is real: these sign in against the live EU project and file
+    # rows, so the job needs the four secrets below actually set on the
+    # repository. Enabling it without them fails on every push and teaches the
+    # team to ignore a red build, which is worse than a job that does not run.
+    #
+    # To turn it on: add the secrets, change this to `if: true`, and expect the
+    # specs to share one live database with whoever else is running them.
     if: false
     steps:
       - uses: actions/checkout@v4
@@ -162,4 +199,6 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
+          # Groq is the generation provider (ADR-035). A Gemini key here would
+          # set no provider at all and the drafting specs would read as broken.
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}

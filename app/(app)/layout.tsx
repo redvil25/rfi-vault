@@ -17,7 +17,6 @@ const NAV = [
   { href: '/report-check', label: 'Clinical Report Check', ready: true },
   { href: '/suggest', label: 'Suggestions', ready: true },
   { href: '/analytics', label: 'Analytics', ready: true },
-  { href: '/audit', label: 'Audit trail', ready: true },
 ]
 
 export default async function AppLayout({

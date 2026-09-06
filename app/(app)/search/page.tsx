@@ -51,12 +51,14 @@ export default async function SearchPage({
       therapeuticArea: params.therapeuticArea,
       impName: params.impName,
       protocolCode: params.protocolCode,
+      team: params.team,
     }),
   ])
 
   const active: Record<string, string | undefined> = {
     part: params.part,
     memberState: params.memberState,
+    team: params.team,
     category: params.category,
     section: params.section,
     therapeuticArea: params.therapeuticArea,

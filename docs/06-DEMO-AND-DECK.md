@@ -38,15 +38,17 @@ Confirm the actual time limit and adapt; the ordering holds either way.
 
 Order matters. Each beat sets up the next.
 
-**Beat 1 — The recurrence (60 s).** Sign in as an Affiliate. Search *"payment evidence for updated national tariff Italy"*. Results return the ISTAT cluster. Point at the confidence bands and at "matched semantically — your words, not theirs." Then open the recurrence panel: **"This same issue has come back eleven times across nine trials. Every one of those was solved from scratch."**
+**Beat 1 — The recurrence (60 s).** Sign in as an Affiliate. Search *"proof of payment updated fee"* — words that are actually in the records, because paraphrase is what ADR-039 gave up and the demo must not pretend otherwise. The ISTAT cluster returns. Point at `matched on: text` and the highlighted terms: every row says why it matched. Then set the **Team** filter to Affiliate — 411 considerations this team owns — and say: **"This same issue has come back thirty-three times across twenty-six trials. Every one was solved from scratch."**
 
-**Beat 2 — The keyword case (30 s).** Search `CT-2024-519530-24-00-SM06-001`. Exact document found instantly. **"Embeddings alone cannot do this. That is why our search is hybrid — and we measured the difference."** Forward-reference the metrics slide.
+**Beat 2 — The identifier case (30 s).** Search `CT-2024-519530-24-00-SM06-001`. Exact document, instantly, `matched on: identifier`. **"Full text mangles that string, and so do embeddings. Twenty-five of our forty-one gold queries are identifiers like it, and we score 1.000 on them."** Forward-reference the metrics slide.
+
+**Do not say "semantic" or "hybrid" anywhere in the demo.** The vector arm was removed (ADR-039) and the deck owns that on the metrics slide. Claiming it live and then showing the ablation table that struck it out is the one way to lose a room that was with you.
 
 **Beat 3 — Grounded drafting (90 s) — the centrepiece.** An RFI arrives. Generate. The draft streams in with inline citations. Open the deltas panel: *"Precedent was Italy 2025 at €X; this is Italy 2026 — verify the current amount."* Point at the groundedness badge.
 
 **Beat 4 — The refusal (60 s) — the moment that wins the room.** Paste the planted no-precedent RFI. The system declines: *"No sufficiently similar precedent. Escalating to RA Clinical."* Say: **"Every demo you will see today shows an AI confidently answering. This one shows it refusing. In regulatory affairs, that is the feature."**
 
-**Beat 5 — The loop (30 s).** Approve a response. Show the audit event with actor, role, timestamp. Search again — the approved response is now precedent. **"Every answer makes the next one faster. That is the compounding value of the repository."**
+**Beat 5 — The loop (30 s).** Approve a response. Open `/audit` **by URL** — it is deliberately not in the sidebar — and show the event with actor, role, timestamp. Search again: the approved response is precedent already, because there is no index to rebuild. **"Every answer makes the next one faster. That is the compounding value of the repository."**
 
 **Beat 6 — Analytics (30 s).** The dashboard. Point at the ISTAT spike: *"A national fee changed in February 2025. It cost us N RFIs across M trials over eight weeks. After the first one, the answer was already in here."* Then the preventability split: what share of RFIs are Tier 1 and Tier 2 administrative and therefore avoidable.
 
@@ -56,7 +58,7 @@ Order matters. Each beat sets up the next.
 - **Recorded backup video ready to play** if anything fails. Do not debug on stage — switch to the video and keep talking.
 - **Rehearse the exact click path five times.** Muscle memory, not improvisation.
 - **Zoom the browser to 125%.** Judges are watching a compressed Teams screen share.
-- **Narrate the user, not the software.** "Maria in the Spanish affiliate opens this and…" — never "here we call the hybrid search endpoint".
+- **Narrate the user, not the software.** "Maria in the Spanish affiliate opens this and…" — never "here we call the search function".
 
 ## 4. The 2-page report
 
@@ -64,7 +66,7 @@ Two pages is a hard limit. Structure:
 
 **Page 1**
 - *Problem* (3–4 sentences) — duplicated effort across 650 applications, no reusable store, the clock risk.
-- *Approach* (1 paragraph + the architecture diagram) — three-layer storage, hybrid retrieval, grounded generation with a refusal path, append-only audit.
+- *Approach* (1 paragraph + the architecture diagram) — the original document, its structured fields and its language all in one Postgres query; grounded generation with a refusal path; append-only audit.
 - *Technologies* (compact table) — with one-line justifications, not just names.
 
 **Page 2**
@@ -86,7 +88,7 @@ Write it in plain professional English. No marketing adjectives. This audience w
 | *This is synthetic data — would it work on real data?* | The architecture is data-agnostic; the corpus reproduces the distributions the mentor described. Real deployment starts by ingesting the historical CTIS RFI archive, which already exists in exportable form. We would re-run the same eval harness on real data before trusting any threshold. |
 | *Who maintains the taxonomy?* | It is a database table, editable by CTA Management, not code. New categories can also be proposed by clustering unclassified considerations. We would recommend a quarterly review owned by the EU Submission Hub. |
 | *What about GxP validation?* | The architecture is validation-ready — append-only audit trail, e-signature-style approval workflow, full traceability of which prompt version produced which output, EU data residency. Formal computerised-system validation is a deployment activity, and we scoped it out deliberately rather than claiming it. |
-| *What if the model is unavailable?* | Keyword search keeps working with no model at all, and semantic search degrades to a local embedding model. Drafting refuses rather than degrading — which is the same behaviour as low precedent. We built the fallback and can show it. |
+| *What if the model is unavailable?* | Most of the product never asks. Search, ingestion, classification, the Clinical Report Check bar one pass, precedent retrieval and the confidence gate are all SQL and regex, so they keep working with no key configured. Drafting refuses and says why — the same behaviour it already has when precedent is thin. Nothing degrades silently, and we can show that live by unsetting the key. |
 | *How much does it cost to run?* | Measured, from our `ai_calls` telemetry: roughly $X per search and $Y per generated draft. Extrapolated to 650 applications a year, that is $Z. |
 | *What is the hardest part of adoption?* | Not the technology — trust and workflow fit. That is why the system refuses rather than guesses, why every answer is cited, and why nothing is ever auto-submitted. We asked our mentor exactly this question in week three; their answer is on slide 13. |
 

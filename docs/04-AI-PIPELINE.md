@@ -2,15 +2,18 @@
 
 ## 1. Models and roles
 
+Generation runs on **Groq** (ADR-035), with Google Gemini as the alternate provider behind the same interface. Groq wins when both keys are present: the Gemini variables ship with defaults and are easy to leave lying around, a Groq key is something somebody deliberately added.
+
 | Purpose | Model | Why |
 |---|---|---|
-| Embeddings | `gemini-embedding-001`, output dim 768 | Strong multilingual retrieval; 768 dims keeps the HNSW index fast and fits pgvector comfortably |
-| Field extraction from PDFs | `gemini-2.5-flash` | Cheap, fast, reliable with structured output |
-| Draft response generation | `gemini-2.5-flash` | Latency matters in a live demo; grounding does the heavy lifting, not model size |
-| Groundedness verification | `gemini-2.5-pro` | A different, stronger model checking the first model's work is a genuinely defensible design |
-| Reranking (optional) | `gemini-2.5-flash` | Listwise rerank of the top 20 |
+| Retrieval | **no model at all** | Postgres full text, trigram overlap and an identifier branch. Removed in ADR-039 and costed in `docs/05-EVALUATION.md` §2 |
+| Field extraction from PDFs | **no model at all** | A CTIS export has fixed labels and repeating blocks, so a regex reads every field with zero hallucination surface. The LLM seam stays behind `extractDocument()` for non-CTIS layouts |
+| Draft, suggestions, completeness, review | `openai/gpt-oss-20b` → **`openai/gpt-oss-120b`** | Measured, not assumed (ADR-037). The 20b model wrote options whose stated risk was `"None."` |
+| Groundedness verification | **`qwen/qwen3.8-27b`** | Deliberately a *different family*, not a larger sibling. A grader sharing the drafter's blind spots agrees with it, and ADR-006 wants a check, not a chorus — that trades capability for independence on purpose |
 
-**Fallback plan:** if Gemini quota is exhausted mid-demo, a local `transformers.js` embedding model (`bge-small-en-v1.5`, 384 dims) behind the same `embed()` interface keeps search alive, and cached draft responses for the scripted demo RFIs keep Feature 3 alive. Build the cache before demo day and mention the fallback in the Q&A — resilience planning scores under Feasibility.
+Model names are environment variables (`GROQ_MODEL_FAST`, `GROQ_MODEL_STRONG`), and the list was read off the account rather than assumed: `llama-3.3-70b-versatile` was the first choice and is not available on it.
+
+**The fallback plan is that most of the product needs no key.** Search, ingestion, classification, the whole Clinical Report Check bar its fifth pass, precedent retrieval and the confidence gate are all deterministic SQL and regex. With no key configured, Features 3 and 6 refuse and say why, which is the behaviour they already have below the threshold. Nothing degrades silently — and being able to say that on stage is worth more than a cache of pre-generated answers.
 
 Every call goes through `lib/ai/client.ts`, which logs to `ai_calls`. No direct SDK calls elsewhere in the codebase.
 
@@ -194,22 +197,28 @@ Themes surfaced        1.8 per section checked
 
 ### 4.1 Retrieval
 
-Top-k (k = 6) via hybrid search, filtered to the same section, preferring the same Member State, and preferring `response_status = APPROVED` with `outcome = ACCEPTED`. Only responses that actually satisfied a regulator are used as precedent — a rejected answer is not precedent, and saying so demonstrates you thought about it.
+Top-k (k = 6) via `lexical_precedents` (0027), filtered to the same section, preferring the same Member State, and **restricted** to `response_status` APPROVED or SUBMITTED with `outcome = ACCEPTED`. Only responses that actually satisfied a regulator are used as precedent — a rejected answer is not precedent, and saying so demonstrates you thought about it.
+
+A precedent carrying no sponsor response is dropped even if it scores well: an open request has nothing to teach the model about answering. A filed consideration also cannot match itself, or the draft would be built from its own text.
 
 ### 4.2 The confidence gate — demo this
 
 ```ts
-if (maxSimilarity < 0.62) {
+if (maxLexicalScore < DRAFT_LEXICAL_THRESHOLD) {   // 0.25
   return {
     refused: true,
-    reason: 'No sufficiently similar precedent found in the repository.',
-    nearest: top3,
-    escalateTo: routeBySection(section),
+    reason: refusalReason(maxLexicalScore, threshold),   // states both numbers
+    nearest: top3,                                       // shown anyway
+    escalateTo: escalateTo(category),                    // owner, from the taxonomy
   };
 }
 ```
 
 The system declines rather than inventing. In a pharma context this is not a limitation, it is the feature. Script it into the demo.
+
+**The threshold was re-measured, not renamed.** 0.62 was tuned for cosine distance, where a paraphrase scores high. `lexicalScore` is trigram overlap: on this corpus answerable requests land between 0.36 and 1.00 and requests with no precedent land at 0.00, so 0.25 sits in the gap with room either side (ADR-039).
+
+The refusal names the score and the threshold, and still shows the closest records found. "Not close enough to answer from" and "nothing here" are different statements, and the reader has to be able to tell them apart.
 
 ### 4.3 Prompt structure
 
@@ -259,7 +268,7 @@ const DraftSchema = z.object({
 
 ### 4.5 Verifier pass
 
-A second call to `gemini-2.5-pro` receives the draft plus the retrieved precedents and returns, per sentence, whether it is supported, partially supported, or unsupported.
+A second call to the verifier model — `qwen3.8-27b`, a different family from the drafter on purpose — receives the draft plus the retrieved precedents and returns, per sentence, whether it is supported, partially supported, or unsupported.
 
 ```
 groundedness = supported_sentences / total_sentences
@@ -269,7 +278,9 @@ Render unsupported sentences with an amber underline and a "no precedent support
 
 ### 4.6 Feedback loop
 
-On approval, the response is written back with `response_status = APPROVED`, re-embedded, and becomes precedent for the next query. Show this live: approve a draft, then run a search that returns it. That closes the loop the solution overview promises and makes "the system gets smarter over time" a demonstrated claim rather than a bullet point.
+On approval the response is written back with `response_status = APPROVED` and **is precedent the instant the status flips**. Retrieval reads `rfi_consideration` directly, so there is no second index to rebuild and no window in which a response is approved but not yet findable — `reEmbedResponse` was deleted rather than replaced (ADR-039).
+
+Show this live: approve a draft, then run a search that returns it. That closes the loop the solution overview promises and makes "the system gets smarter over time" a demonstrated claim rather than a bullet point. Approval is also the RLS boundary — the row moves from the owning team's work in progress to knowledge shared organisation-wide — so the same click demonstrates the authorisation model.
 
 ## 5. Feature 6 — Suggestions: three grounded options for a request that just arrived
 
@@ -282,7 +293,7 @@ Feature 3 answers a consideration that is **already filed**, inside the status m
 - **Member State** from the CTIS prefix (`IT - …`) or an exact country name in the text. An unknown two-letter prefix is not a Member State.
 - **Category** from `classifyConsideration` — the same classifier ingestion uses, so a suggestion and a filed consideration cannot disagree about what a request is about (ADR-024).
 - **Section** from the user's choice, always. It only falls back to the taxonomy when the user left it blank *and* the category maps to exactly one section. Retrieval is filtered by section, so a wrong section returns precedent from the wrong part of the dossier and the writer has no way to see it happened — **the run refuses rather than guessing**.
-- **Multiple considerations** in one paste are split on the CTIS numbering. The first is answered and the rest are offered; blending several questions into one embedding retrieves precedent for none of them.
+- **Multiple considerations** in one paste are split on the CTIS numbering. The first is answered and the rest are offered; blending several questions into one query retrieves precedent for none of them.
 
 ### 5.2 Three strategies, not three paraphrases
 

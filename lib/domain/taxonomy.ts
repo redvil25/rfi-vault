@@ -526,6 +526,41 @@ export const MEMBER_STATE_BY_CODE = new Map(MEMBER_STATES.map((m) => [m.code, m]
 export const ALL_SECTIONS = [...PART_I_SECTIONS, ...PART_II_SECTIONS]
 
 /**
+ * The four user groups named in the problem statement, plus Admin.
+ *
+ * These are the enum values `team_role` and the `owner` on every category, so a
+ * screen that shows a team is showing a taxonomy value and reads it from here.
+ */
+export const TEAM_ROLES: TeamRole[] = [
+  'RA_CLINICAL',
+  'AFFILIATE',
+  'CTA_MANAGEMENT',
+  'EU_SUBMISSION_HUB',
+  'ADMIN',
+]
+
+/** How a team is written for a reader. `RA_CLINICAL` is a database value, not a label. */
+export const TEAM_LABELS: Record<TeamRole, string> = {
+  RA_CLINICAL: 'RA Clinical',
+  AFFILIATE: 'Affiliate',
+  CTA_MANAGEMENT: 'CTA Management',
+  EU_SUBMISSION_HUB: 'EU Submission Hub',
+  ADMIN: 'Admin',
+}
+
+/**
+ * The categories a team owns the response to.
+ *
+ * Ingestion and the seed both write `owner_team` from `category.owner`, so this
+ * is the mapping the corpus was filed under rather than a second opinion about
+ * it — which is why search filters on the column instead of expanding a team
+ * into this list (ADR-024, migration 0029).
+ */
+export function categoriesOwnedBy(team: TeamRole): Category[] {
+  return CATEGORIES.filter((c) => c.owner === team)
+}
+
+/**
  * Filed when the parser could not map the printed section onto the taxonomy.
  *
  * `section` is NOT NULL, so ingestion has to write something. The something has

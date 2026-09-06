@@ -18,13 +18,22 @@
 |---|---|
 | Supabase project | `rfi-vault`, ref `dpgiaehimkltizdrbusg`, **eu-central-1 (Frankfurt)**, Postgres 17 |
 | API URL | `https://dpgiaehimkltizdrbusg.supabase.co` |
-| Migrations applied | 0001–0013 |
-| Schema | 10 tables, 6 enums, 14 RLS policies (all `to authenticated`), 5 search functions |
-| Advisors | security 0 lints · performance 0 WARN |
-| Corpus | 130 trials · 348 RFI documents · **940 considerations** · 849 reusable · 15 Member States |
+| Host | **Vercel**, project `rfi-vault`, region pinned `fra1` (ADR-014). Push to `main` deploys production |
+| Repository | `github.com/redvil25/rfi-vault`, private |
+| Migrations applied | 0001–0029 |
+| Schema | 8 tables, 6 enums, 11 RLS policies (all `to authenticated`), 14 functions |
+| Corpus | 142 trials · 360 RFI documents · **952 considerations** · 909 answered · 15 Member States |
 | Demo users | 5, password `RfiVault!Demo2026` — see `scripts/seed/run.ts` |
-| Smoke test | `npm run verify` — 11/11 passing |
-| Still needed | Gemini API key (placeholder for now), GitHub remote |
+| Smoke test | `npm run verify` — 11/11 passing (2026-09-06) |
+| Generation | **Groq**, `gpt-oss-120b` drafts / `qwen3.8-27b` verifies. Retrieval needs no key at all |
+| Retrieval | Lexical only since ADR-039. `rfi_embedding`, `hybrid_search`, `vector_search` dropped in 0028 |
+
+**`npm run db:migrate` does not work on this project.** The remote migration history
+is on Supabase's timestamp versions while the committed files are numbered
+`0001_`…, so `supabase db push` refuses with `LegacyDbPushMissingLocalError`.
+Migrations are applied through the Supabase MCP `apply_migration` with the
+committed file's SQL, then `npm run db:types`. Repairing the history to match the
+filenames would fix it and is not worth doing before submission.
 
 ## 1. Fixed facts about the competition
 
@@ -120,24 +129,25 @@ Things we expect to learn and should record when we do:
 | Q5 | Where are RFIs stored today — SharePoint, Veeva Vault RIM, email? | Domain Lead | Open |
 | Q6 | Has an application ever lapsed on a missed validation clock? | Domain Lead | Open |
 | Q7 | All `[VERIFY]` timelines in `docs/01-DOMAIN.md` §3 | Domain Lead | Open |
-| Q8 | Gemini API processing region — does it affect the EU residency claim? | AI Engineer | Open |
+| Q8 | Generation provider's processing region — does it affect the EU residency claim? Now a Groq question, not a Gemini one (ADR-035) | AI Engineer | Open — and narrower than it was: retrieval leaves the EU region not at all, only generation calls out |
 | Q9 | Is a demo video allowed/expected alongside the live demo? | Lead | Open |
 | Q10 | Report format — PDF, template, font/margin constraints? | Domain Lead | Open |
-| Q11 | **Hosting platform** — deferred by ADR-011, must be decided Mon 31 Aug | Lead | Open |
+| Q11 | ~~Hosting platform~~ | Lead | **Closed 2026-09-03 — Vercel, `fra1` (ADR-014)** |
 
 ## 7. Decisions already made (see `docs/DECISIONS.md` for full rationale)
 
-- Postgres + pgvector, not a dedicated vector database (ADR-001)
-- Hybrid retrieval with RRF, k=60 (ADR-002)
-- Two embeddings per consideration: question-space and answer-space (ADR-003)
-- The system refuses to draft below a similarity threshold (ADR-005)
-- An independent, stronger model verifies groundedness (ADR-006)
+- Postgres, not a dedicated vector database (ADR-001) — and now not a vector database at all
+- ~~Hybrid retrieval with RRF, k=60 (ADR-002)~~ — superseded by ADR-039; retrieval is lexical
+- ~~Two embeddings per consideration (ADR-003)~~ — `rfi_embedding` dropped in 0028
+- The system refuses to draft below a threshold (ADR-005), now a lexical one at 0.25 (ADR-039)
+- An independent verifier model grades groundedness (ADR-006) — a different family, not a bigger sibling (ADR-037)
 - Audit trail is append-only, enforced by database trigger (ADR-007)
 - EU data residency: Supabase `eu-central-1`; host must also be EU-pinned (ADR-008)
 - Synthetic corpus from hand-written skeletons, fixed seed (ADR-009)
 - Next.js + Supabase, TypeScript end to end (ADR-010)
-- GitHub only; **no hosting platform adopted yet**, decision deferred to Mon 31 Aug. Keep the app host-agnostic (ADR-011)
-- AI SDK **v7** with `@ai-sdk/google` called directly, no gateway (ADR-012)
+- ~~No hosting platform adopted yet (ADR-011)~~ — **Vercel, pinned to `fra1`** (ADR-014). Still written as a plain Next.js app, so the decision stays reversible
+- AI SDK **v7**, provider called directly, no gateway (ADR-012). Groq serves generation; Google is the alternate behind the same interface (ADR-035)
+- Retrieval is lexical and the refusal gate stays (ADR-039) — two decisions, and only the first was about cost
 
 ## 8. Standing reminders
 

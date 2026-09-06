@@ -45,9 +45,9 @@ export class AiDisabledError extends Error {
     super(
       `${what} needs a text-generation key: either GROQ_API_KEY or ` +
         'GOOGLE_GENERATIVE_AI_API_KEY. Neither is set, or both are still the placeholder, ' +
-        'so the generation path is off. Everything deterministic — PDF parsing, keyword ' +
-        'search, rule-based classification, the pre-submission check — still works, and so ' +
-        'does semantic retrieval, which runs on the local embedding model.',
+        'so the generation path is off. Everything else still works and needs no key at ' +
+        'all: PDF parsing, rule-based classification, search, the Clinical Report Check, ' +
+        'and precedent retrieval with its confidence gate, which is lexical since ADR-039.',
     )
     this.name = 'AiDisabledError'
   }

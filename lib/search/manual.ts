@@ -32,6 +32,17 @@ export const searchParamsSchema = z.object({
     .enum(['INITIAL', 'SUBSTANTIAL_MODIFICATION', 'ADDITIONAL_MS'])
     .optional(),
   status: z.enum(['DRAFT', 'IN_REVIEW', 'APPROVED', 'SUBMITTED']).optional(),
+  /**
+   * The team that owns the response, not the team of the person searching.
+   *
+   * `owner_team` is written from the category's owner in the taxonomy, so this
+   * filter answers "everything my team is on the hook for" without a second
+   * mapping to keep in step (migration 0029). RLS is unchanged by it: a filter
+   * narrows what is returned and never widens what is readable, so selecting
+   * another team still shows only that team's approved and submitted work.
+   */
+  team: z.enum(['RA_CLINICAL', 'AFFILIATE', 'CTA_MANAGEMENT', 'EU_SUBMISSION_HUB', 'ADMIN'])
+    .optional(),
   from: z.string().datetime().optional(),
   to: z.string().datetime().optional(),
   sort: z.enum(SORTS).default('relevance'),
@@ -127,6 +138,7 @@ export async function searchConsiderations(
     f_therapeutic_area: params.therapeuticArea ?? undefined,
     f_imp_name: params.impName ?? undefined,
     f_protocol_code: params.protocolCode ?? undefined,
+    f_owner_team: params.team ?? undefined,
     sort: params.sort,
     lim: params.pageSize,
     off: (params.page - 1) * params.pageSize,
@@ -160,6 +172,7 @@ export async function searchFacets(params: {
   therapeuticArea?: string
   impName?: string
   protocolCode?: string
+  team?: Enums['team_role']
 }): Promise<Record<string, Facet[]>> {
   const supabase = await createClient()
 
@@ -170,6 +183,7 @@ export async function searchFacets(params: {
     f_therapeutic_area: params.therapeuticArea ?? undefined,
     f_imp_name: params.impName ?? undefined,
     f_protocol_code: params.protocolCode ?? undefined,
+    f_owner_team: params.team ?? undefined,
   })
 
   if (error) throw new Error(`search_facets failed: ${error.message}`)

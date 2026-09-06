@@ -2,6 +2,7 @@
 
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useTransition } from 'react'
+import { TEAM_LABELS, type TeamRole } from '@/lib/domain/taxonomy'
 import type { Facet } from '@/lib/search/manual'
 
 interface Props {
@@ -26,6 +27,10 @@ const SELECTS: {
 }[] = [
   { key: 'part', label: 'Application part', facet: 'section_part' },
   { key: 'memberState', label: 'Member State', facet: 'member_state' },
+  // The team that owns the response, which is the category's owner in the
+  // taxonomy — so this filter and the Category filter below it are two views of
+  // the same field, one grouped and one not (migration 0029).
+  { key: 'team', label: 'Team', facet: 'owner_team' },
   { key: 'category', label: 'Category', facet: 'category' },
   // Labelled "Document type" at the team's request. The underlying field is the
   // CTIS application section part — see the note in docs/01-DOMAIN.md §5.
@@ -66,6 +71,9 @@ const SELECTS: {
 function label(key: string, value: string) {
   if (key === 'part') return value === 'PART_I' ? 'Part I' : 'Part II'
   if (key === 'category') return value.replaceAll('_', ' ').toLowerCase()
+  // A team is an enum value in the database and a name on screen. Falling back
+  // to the raw value keeps an unknown role visible rather than blank.
+  if (key === 'team') return TEAM_LABELS[value as TeamRole] ?? value
   return value
 }
 
