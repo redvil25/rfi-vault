@@ -49,7 +49,9 @@ test('a consideration with no response gets options', async ({ page }) => {
   console.log('\n───── consideration only ─────\n' + body.slice(0, 1400) + '\n')
 
   expect(body).toContain('Option 1')
-  expect(body).toContain('Precedent these were built from')
+  // Case-insensitive: the precedent list heading is uppercased in CSS, and
+  // innerText returns what is rendered rather than what is in the markup.
+  expect(body).toMatch(/precedent these were built from/i)
   expect(body).not.toContain('reviewed rather than answered')
   // At least one of the three strategies came back.
   expect(body).toMatch(/Supply the document|Justify what was already filed|Acknowledge and commit/)
