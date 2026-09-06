@@ -14,38 +14,41 @@
 
 Every call goes through `lib/ai/client.ts`, which logs to `ai_calls`. No direct SDK calls elsewhere in the codebase.
 
-## 2. Feature 1 — Hybrid search
+## 2. Feature 1 — Search
 
-### 2.1 Why hybrid
+### 2.1 What it matches on
 
-Pure vector search fails on the strings that matter most in this domain: `CT-2024-519530-24-00-SM06-001`, POL numbers, `Annex 15`, `Article 5(3)`. Pure keyword search fails when an Affiliate in Poland describes in their own words a problem that an Italian colleague described differently eighteen months ago. The whole point of the repository is to connect those two people, so both retrieval modes are mandatory.
+Two branches over `rfi_consideration`, both in `search_considerations` (0016):
 
-### 2.2 Fusion
+**Full text.** `websearch_to_tsquery` against a stored `tsvector`, ranked by `ts_rank_cd`. Stemmed, so "payments" finds "payment".
 
-Reciprocal Rank Fusion over the two ranked lists:
+**Identifiers.** `document_ref` and `eu_trial_number` matched with ILIKE. These are the strings full text handles worst — `CT-2024-519530-24-00-SM06-001`, POL numbers, `Annex 15` — and they are what a regulatory colleague actually pastes. An identifier hit outranks a text hit, because a pasted reference is the row asked for by name rather than a candidate to be ranked.
 
-```
-RRF(d) = Σ_over_retrievers  1 / (k + rank_r(d)),   k = 60
-```
+Filters, RLS and ranking all execute in one round trip.
 
-Rank-based, so no score normalisation is needed between cosine distance and `ts_rank_cd`. Implemented in SQL (`0008_hybrid_search.sql`) so filters, RLS, and fusion all execute in one round trip.
+### 2.2 There is no vector arm, and that is a decision with a number on it
 
-### 2.3 Confidence score shown to the user
+This section used to describe Reciprocal Rank Fusion over cosine distance and `ts_rank_cd`. Embeddings were removed in **ADR-039** because they could not be operated reliably on the deployment host, and the removal is costed rather than glossed:
 
-Do not show a raw RRF score — it is meaningless to a regulatory user. Show a calibrated 0–100 **match confidence** derived from cosine similarity, banded with plain-language labels:
-
-| Cosine similarity | Label | UI treatment |
+| | Keyword (ships) | Hybrid (removed) |
 |---|---|---|
-| ≥ 0.82 | Strong precedent | Green, "reusable with minor edits" |
-| 0.70 – 0.82 | Related precedent | Amber, "review differences" |
-| 0.55 – 0.70 | Weak match | Grey, "background only" |
-| < 0.55 | Not shown | — |
+| Recall@5 overall | 0.634 | 0.795 |
+| Identifier queries (25 of 41) | **1.000** | 0.944 |
+| Paraphrased queries (10 of 41) | **0.000** | 0.680 |
 
-Calibrate the thresholds against the gold set rather than guessing, and state in the deck that they were calibrated. Each result also shows **why it matched** — semantic, keyword, or both — with the matched terms highlighted. That single explainability touch is what makes the feature feel trustworthy rather than magical.
+Paraphrase is the whole loss and it is total. A request sharing no vocabulary with the record that answers it is now unfindable. Identifier queries — the majority, and the ones people actually type — are better without the vector arm diluting an exact match.
 
-### 2.4 Optional listwise rerank
+Say it that way in the deck. "We use keyword search" undersells it; "we removed a capability that scored 0.68 on paraphrase, because it could not be run reliably, and here is what that cost" is the honest and stronger sentence.
 
-For the top 20 fused results, one `gemini-2.5-flash` call scores relevance to the query and returns a reordering with a one-line justification per result. Adds roughly 600–900 ms. Measure the nDCG@10 gain in `npm run eval`; **keep it only if it wins on the numbers, and report the measured delta either way.** Reporting a rejected optimisation with its number is a stronger technical signal than silently shipping it.
+### 2.3 Confidence shown to the user
+
+`similarity` is 0 on every hit now, and the band is `NONE` — literally "not scored by meaning", which is the situation. Reporting an invented number so the badge looks populated would be worse than an empty one.
+
+Each result still shows **why it matched** — text or identifier — with the matched terms highlighted. That explainability is what survives, and it is the part that made the feature feel trustworthy rather than magical.
+
+### 2.4 The gate is scored separately
+
+Features 3 and 6 do not use this path. They call `lexical_precedents` (0027), which filters to approved and accepted responses and returns a pg_trgm overlap score in 0..1 — the number the confidence gate refuses on. See §4.2.
 
 ## 3. Feature 2 — Clinical Report Check
 

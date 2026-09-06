@@ -23,7 +23,6 @@
     "fixtures:report": "python scripts/fixtures/make_report_pdf.py",
     "setup:storage": "tsx scripts/setup/storage.ts",
     "verify:ingest": "tsx scripts/verify/ingest-e2e.ts",
-    "embed": "tsx scripts/embed/run.ts",
     "verify:report": "tsx scripts/verify/report-check.ts",
     "verify:dashboards": "tsx scripts/verify/dashboards.ts",
     "verify:draft": "tsx scripts/verify/draft.ts",
@@ -32,7 +31,6 @@
   "dependencies": {
     "@ai-sdk/google": "^4.0.41",
     "@ai-sdk/groq": "^4.0.37",
-    "@huggingface/transformers": "^4.2.0",
     "@supabase/ssr": "^0.12.4",
     "@supabase/supabase-js": "^2.112.3",
     "ai": "^7.0.59",

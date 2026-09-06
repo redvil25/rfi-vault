@@ -22,21 +22,28 @@ scripts/eval/
 
 | Configuration | Recall@5 | MRR@10 | nDCG@10 | p95 latency |
 |---|---|---|---|---|
-| Keyword only (`ts_rank_cd`) | 0.634 | 0.634 | 0.634 | 488 ms |
-| Vector only (pgvector cosine) | 0.195 | 0.188 | 0.187 | 389 ms |
-| **Hybrid (RRF, k=60)** | **0.795** | **0.798** | **0.793** | 242 ms |
+| **Keyword only (`ts_rank_cd`)** — what ships | **0.634** | **0.634** | **0.634** | 513 ms |
+| Lexical precedent (trigram + FTS) — the gate | 0.634 | 0.634 | 0.634 | 511 ms |
+| ~~Vector only (pgvector cosine)~~ — removed | 0.195 | 0.188 | 0.187 | 389 ms |
+| ~~Hybrid (RRF, k=60)~~ — removed | 0.795 | 0.798 | 0.793 | 242 ms |
 
-Measured 5 Sep 2026 over 952 considerations and 41 gold queries, embeddings from the local `all-mpnet-base-v2` model. Reproduce with `npm run eval`.
+The struck rows are **not** what runs. They are the last measurement taken before embeddings were removed (ADR-039), kept because the cost of that removal is part of the argument and deleting the evidence would be the dishonest way to present it.
+
+Measured over 952 considerations and 41 gold queries. Reproduce the live rows with `npm run eval`.
 
 Then break the same table down by **query type**, using the planted pairs from `docs/03-DATA-MODEL.md` §2.2:
 
 | Query type | Keyword only | Vector only | Hybrid |
 |---|---|---|---|
-| Identifier / code queries (n=25) | 1.000 | **0.000** | 0.944 |
+| Identifier / code queries (n=25) | **1.000** | 0.000 | 0.944 |
 | Paraphrased semantic queries (n=10) | **0.000** | 0.580 | 0.680 |
 | Mixed natural queries (n=6) | 0.167 | 0.367 | 0.367 |
 
-The two zeroes are the argument. Neither arm can do the other's job at all, and hybrid is the only column that is never zero. **This table did not always read this way** — see ADR-036: hybrid scored 0.220 and lost every identifier query until the missing identifier arm was found, by running this exact evaluation.
+**Read this honestly.** Identifier queries are 25 of the 41 and are what a regulatory colleague actually pastes — a document reference or a trial number — and keyword answers all of them, better than hybrid did. Paraphrase is the loss, and it is total: a request that shares no vocabulary with the record that answers it is now unfindable, and the confidence gate refuses it rather than drafting from something worse.
+
+That is the trade ADR-039 made deliberately. Say it that way in the deck: not "we use keyword search", but "we removed a capability that scored 0.58 on paraphrase, because it could not be operated reliably, and here is the number".
+
+**This table did not always read this way** — see ADR-036: hybrid scored 0.220 and lost every identifier query until the missing identifier arm was found, by running this exact evaluation.
 
 This second table is the argument. It shows *why* hybrid exists rather than asserting that it is better. When a judge asks "why not just use embeddings?", point at row one. Anticipating the judge's question with a pre-computed answer is the strongest possible response.
 

@@ -59,26 +59,15 @@ export function requireAi(what: string): void {
 export interface ModelChoice {
   fast: string
   strong: string
-  embedding: string
-  embeddingDim: number
 }
 
-/**
- * Model names for whichever provider is configured.
- *
- * `embedding` names the Gemini model regardless: the local fallback is selected
- * inside `lib/ai/embed.ts`, which is the only module that has to care, and
- * reporting a model name here that never ran would be worse than reporting the
- * one that would have.
- */
+/** Model names for whichever provider is configured. */
 export function models(): ModelChoice {
   const env = serverEnv()
   const groq = generationProvider() === 'groq'
   return {
     fast: groq ? env.GROQ_MODEL_FAST : env.GEMINI_MODEL_FAST,
     strong: groq ? env.GROQ_MODEL_STRONG : env.GEMINI_MODEL_STRONG,
-    embedding: env.GEMINI_EMBEDDING_MODEL,
-    embeddingDim: env.EMBEDDING_DIM,
   }
 }
 

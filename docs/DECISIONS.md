@@ -679,3 +679,29 @@ Format is decided by magic bytes, not by the content type sent with the upload, 
   - Then it emitted one item per past request, several labelled "(duplicate)", some restating a precedent about somebody else's dossier. The prompt now demands one finding per distinct gap with several citations, and `why` must describe *this* document; near-identical items merge in code regardless, because models do this anyway.
   - Then Groq rejected its own answers twice over. Omitting an empty `openQuestions` failed `/required`; adding `.default([])` removed the key from `required` and was rejected before the call. Groq requires every property listed. Both keys stay required and the prompt says to return an empty array. Separately, a `{ considerationId, supportsClaim }` citation shape came back as bare ids on every retry — `why` already carries the explanation, so citations are now id strings.
 - **The renamed route keeps the old audit `entity_type`.** Rows saying `precheck_run` are history and `audit_events` is append-only; only the filter's label changed.
+
+---
+
+## ADR-039 — Retrieval is lexical; the gate stays
+**2026-09-06 · Accepted · Supersedes ADR-002 and ADR-035, narrows ADR-005**
+
+**Context.** Embeddings were never operable on the deployment host. Getting them there cost three separate production failures in one session — a native library file tracing could not see, a model cache written into a read-only directory, and a fallback naming a device Node does not accept — each hidden behind the last, and none visible to the unit tests, the typecheck, the build or the live verification scripts. They were fixed, and the cost of keeping them was still 53 MB of native binaries in the bundle and a 110 MB weight download on every cold instance.
+
+Against that, what the vector arm bought was one thing: paraphrase. Recall@5 of 0.58 on queries sharing no vocabulary with the record they want, against 0.00 for keyword.
+
+**Decision.** Remove the vector arm. Keep the refusal.
+
+Those are two decisions and only the first is about cost. Features 3 and 6 gate on "is any precedent close enough to answer from", and that gate is the product's central claim (CLAUDE.md §2 rule 2). Dropping embeddings without replacing it would have produced a system that always answers, which is not a cheaper version of this product but a different and worse one.
+
+So the gate moves to `lexical_precedents` (0027): full text finds candidates, `similarity()` from pg_trgm scores shared wording as a true 0..1, and an exact document reference scores 1. The threshold was re-measured rather than reused — 0.62 was tuned for cosine, where a paraphrase scores high. On this corpus, answerable requests score 0.36–1.00 and requests with no precedent score 0.00; `DRAFT_LEXICAL_THRESHOLD` is 0.25, sitting in that gap.
+
+**The field is named `lexicalScore`, not `similarity`, everywhere it surfaces.** A reader who thinks the number measures meaning will set the threshold wrong.
+
+**Consequences.**
+- **Recall@5 falls 0.795 → 0.634, and paraphrase falls 0.680 → 0.000.** Total, not degraded. docs/05 keeps the struck rows: deleting the evidence would be the dishonest way to present the trade.
+- **Identifier queries improve**, 0.944 → 1.000. They are 25 of the 41 gold queries and the ones a regulatory colleague actually pastes; the vector arm only ever diluted an exact reference match.
+- **The gate now refuses a class of request it used to answer** — a paraphrased one with good precedent behind it. That is a worse failure than refusing something genuinely novel, and it is the price.
+- **Approval became publication.** `reEmbedResponse` is gone: retrieval reads `rfi_consideration` directly, so an approved response is precedent the instant its status flips. There is no second index, and no window in which a response is approved but not yet findable. Dropping a dependency removed a moving part rather than replacing it.
+- `0028` drops `rfi_embedding`, `hybrid_search` and `vector_search`. `pgvector` stays installed: it costs nothing unused, and restoring the vector arm should be a migration against our own schema rather than against the extension.
+- **`npm run embed` no longer exists**, and `npm run seed` is now the whole corpus setup. Nothing in the product needs a key to retrieve — generation is the only thing that does.
+- **This is reversible and costed.** The measurement that would justify reinstating the vector arm is in docs/05, and 0027's gate would sit beside a cosine one rather than being replaced by it.

@@ -3,7 +3,6 @@ import {
   BAND_LABELS,
   CONFIDENCE_THRESHOLDS,
   bandFor,
-  collapseByConsideration,
   matchedOnFor,
 } from './hybrid'
 
@@ -48,39 +47,5 @@ describe('matchedOnFor', () => {
   /** Rank 0 is a real rank. Truthiness checks here would silently mislabel it. */
   it('treats rank 0 as a match, not as absent', () => {
     expect(matchedOnFor({ vector_rank: 0, fts_rank: null })).toBe('semantic')
-  })
-})
-
-describe('collapseByConsideration', () => {
-  it('keeps the better-scoring row when a consideration matches twice', () => {
-    const rows = [
-      { consideration_id: 'a', rrf_score: 0.01 },
-      { consideration_id: 'a', rrf_score: 0.03 },
-      { consideration_id: 'b', rrf_score: 0.02 },
-    ]
-    const out = collapseByConsideration(rows)
-    expect(out).toHaveLength(2)
-    expect(out[0]).toEqual({ consideration_id: 'a', rrf_score: 0.03 })
-  })
-
-  it('sorts by fused score descending', () => {
-    const rows = [
-      { consideration_id: 'a', rrf_score: 0.01 },
-      { consideration_id: 'b', rrf_score: 0.05 },
-      { consideration_id: 'c', rrf_score: 0.03 },
-    ]
-    expect(collapseByConsideration(rows).map((r) => r.consideration_id)).toEqual(['b', 'c', 'a'])
-  })
-
-  it('returns nothing for no input', () => {
-    expect(collapseByConsideration([])).toEqual([])
-  })
-
-  it('leaves already-unique rows intact', () => {
-    const rows = [
-      { consideration_id: 'a', rrf_score: 0.02 },
-      { consideration_id: 'b', rrf_score: 0.01 },
-    ]
-    expect(collapseByConsideration(rows)).toEqual(rows)
   })
 })

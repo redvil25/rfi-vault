@@ -1,9 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/lib/db/types'
-import { createServiceClient } from '@/lib/db/service'
-import { embedDocuments } from '@/lib/ai/embed'
-import { toVectorLiteral } from '@/lib/ai/embed'
-import { embeddingsEnabled } from '@/lib/env'
 import { log } from '@/lib/log'
 import { TRANSITIONS, blockedBecause, type WorkflowAction } from './transitions'
 
@@ -20,7 +16,7 @@ export interface ApplyInput {
 }
 
 export type ApplyResult =
-  | { ok: true; from: string; to: string; reEmbedded: boolean; reEmbedNote?: string }
+  | { ok: true; from: string; to: string }
   | { ok: false; error: string }
 
 /**
@@ -128,78 +124,19 @@ export async function applyTransition(
   }
 
   // --- Feedback loop -----------------------------------------------------
-  let reEmbedded = false
-  let reEmbedNote: string | undefined
-
-  if (rule.to === 'APPROVED') {
-    const outcome = await reEmbedResponse(input.considerationId, current.consideration_text, nextText)
-    reEmbedded = outcome.ok
-    reEmbedNote = outcome.note
-  }
-
+  //
+  // There is nothing to do here any more, and that is the point. Retrieval reads
+  // `rfi_consideration` directly, so an approved response is precedent the
+  // instant its status flips — no second index to maintain, and no window in
+  // which a response is approved but not yet findable. Dropping embeddings
+  // removed a moving part rather than replacing it (ADR-039).
   log.info('workflow.transitioned', {
     considerationId: input.considerationId,
     action: input.action,
     from: current.response_status,
     to: rule.to,
-    reEmbedded,
   })
 
-  return { ok: true, from: current.response_status, to: rule.to, reEmbedded, reEmbedNote }
+  return { ok: true, from: current.response_status, to: rule.to }
 }
 
-/**
- * Re-embeds a newly approved response so it becomes precedent for the next
- * search (docs/04-AI-PIPELINE.md §4.6).
- *
- * Never fails the transition. Approval is a regulatory act and it either
- * happened or it did not; whether the index has caught up yet is a separate
- * concern, and refusing an approval because an embedding call timed out would be
- * indefensible. The caller is told, so the UI can say "approved, not yet
- * searchable by meaning" rather than implying the loop closed when it has not.
- *
- * Writes go through the service client because `rfi_embedding` carries a read
- * policy and no insert grant for `authenticated` — the index is maintained by
- * the system, not by users.
- */
-async function reEmbedResponse(
-  considerationId: string,
-  considerationText: string,
-  responseText: string,
-): Promise<{ ok: boolean; note?: string }> {
-  if (!embeddingsEnabled()) {
-    return { ok: false, note: 'no embedding model available, so it is searchable by keyword only' }
-  }
-  if (!responseText.trim()) {
-    return { ok: false, note: 'there is no response text to index' }
-  }
-
-  try {
-    const content = `${considerationText}\n\n${responseText}`
-    const { embeddings } = await embedDocuments([content])
-    const vector = embeddings[0]
-    if (!vector) return { ok: false, note: 'the embedding came back empty' }
-
-    const { error } = await createServiceClient()
-      .from('rfi_embedding')
-      .upsert(
-        {
-          consideration_id: considerationId,
-          kind: 'RESPONSE',
-          content,
-          embedding: toVectorLiteral(vector),
-        },
-        { onConflict: 'consideration_id,kind' },
-      )
-
-    if (error) {
-      log.warn('workflow.reembed_write_failed', { considerationId }, error)
-      return { ok: false, note: 'the search index could not be updated' }
-    }
-
-    return { ok: true }
-  } catch (err) {
-    log.warn('workflow.reembed_failed', { considerationId }, err)
-    return { ok: false, note: 'the embedding call failed' }
-  }
-}

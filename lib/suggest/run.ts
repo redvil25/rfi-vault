@@ -195,7 +195,7 @@ export async function suggestResponses(
     }
   }
 
-  const threshold = serverEnv().DRAFT_SIMILARITY_THRESHOLD
+  const threshold = serverEnv().DRAFT_LEXICAL_THRESHOLD
   if (!passesConfidenceGate(retrieval.maxSimilarity, threshold)) {
     return {
       refused: true,

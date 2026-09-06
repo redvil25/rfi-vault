@@ -23,10 +23,10 @@ const publicSchema = z.object({
  *
  * A host that stores a variable with no value hands the process an empty
  * string. `z.coerce.number()` turns that into `0`, which then fails
- * `.positive()` — so `EMBEDDING_DIM=` did not fall back to 768, it threw, and
- * the whole server schema failed to parse. The symptom was three layers away
- * from the cause: "embedding the query failed" on the live search page, with a
- * ZodError about EMBEDDING_DIM and RRF_K buried in the function logs.
+ * `.positive()` — so a blank numeric variable did not fall back to its
+ * default, it threw, and the whole server schema failed to parse. The symptom
+ * was three layers away from the cause: a feature reporting that retrieval had
+ * failed, with a ZodError about an unrelated variable buried in the logs.
  *
  * Blanking a variable is how a person un-sets one in a dashboard. It has to
  * behave like absence.
@@ -38,15 +38,12 @@ function blankAsUnset(value: unknown): unknown {
 const optionalText = z.preprocess(blankAsUnset, z.string().optional())
 const textWithDefault = (fallback: string) =>
   z.preprocess(blankAsUnset, z.string().default(fallback))
-const positiveInt = (fallback: number) =>
-  z.preprocess(blankAsUnset, z.coerce.number().int().positive().default(fallback))
 
 const serverSchema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.preprocess(blankAsUnset, z.string().min(20).optional()),
   GOOGLE_GENERATIVE_AI_API_KEY: optionalText,
   GEMINI_MODEL_FAST: textWithDefault('gemini-2.5-flash'),
   GEMINI_MODEL_STRONG: textWithDefault('gemini-2.5-pro'),
-  GEMINI_EMBEDDING_MODEL: textWithDefault('gemini-embedding-001'),
   GROQ_API_KEY: optionalText,
   /**
    * Drafting and verification. Measured, not assumed — see ADR-037.
@@ -68,23 +65,20 @@ const serverSchema = z.object({
    * is not a soft failure — Postgres rejects the insert.
    */
   /**
-   * Which embedder produced the corpus, and therefore which must embed queries.
+   * Lexical overlap below which drafting and suggestions refuse (ADR-039).
    *
-   * Explicit, and never inferred from whether a key happens to be present. The
-   * stored vectors came from one model; a query embedded by a different one
-   * lands in a different vector space, and the cosine distance between them is
-   * noise that looks exactly like a working retriever returning poor results.
+   * Not the old cosine threshold under a new name. 0.62 was tuned for embedding
+   * similarity, where a paraphrase scores highly; pg_trgm scores shared
+   * *wording*, and the same answerable requests land between 0.36 and 1.00
+   * while requests with no precedent in the corpus land at 0.00. 0.25 sits in
+   * that gap with room on both sides.
    *
-   * Changing this requires re-running `npm run embed`. There is no arrangement
-   * in which the two may differ.
+   * Provisional, and measurable: `npm run eval` prints the separation it was
+   * chosen from, and it should be re-checked whenever the corpus changes shape.
    */
-  EMBEDDING_PROVIDER: z.preprocess(blankAsUnset, z.enum(['local', 'gemini']).default('local')),
-  LOCAL_EMBEDDING_MODEL: textWithDefault('Xenova/all-mpnet-base-v2'),
-  EMBEDDING_DIM: positiveInt(768),
-  RRF_K: positiveInt(60),
-  DRAFT_SIMILARITY_THRESHOLD: z.preprocess(
+  DRAFT_LEXICAL_THRESHOLD: z.preprocess(
     blankAsUnset,
-    z.coerce.number().min(0).max(1).default(0.62),
+    z.coerce.number().min(0).max(1).default(0.25),
   ),
   SEED_RANDOM_SEED: z.preprocess(blankAsUnset, z.coerce.number().int().default(42)),
 })
@@ -126,40 +120,6 @@ export function generationProvider(): GenerationProvider | null {
  */
 export function aiEnabled(): boolean {
   return generationProvider() !== null
-}
-
-/**
- * Embeddings are a separate capability from generation, and conflating them was
- * a real bug: Groq serves no embedding model at all, so a Groq key made
- * `aiEnabled()` true while semantic retrieval remained impossible. Retrieval
- * must ask this question, not that one.
- *
- * Always true, because the local sentence-transformer fallback needs no key and
- * no network once its weights are cached (ADR-035). Kept as a function so the
- * call sites read as a capability check rather than as a constant.
- */
-export function embeddingsEnabled(): boolean {
-  return true
-}
-
-/**
- * True when embeddings come from Gemini rather than from the local model.
- *
- * Reads the declared provider, never the incidental presence of a key. Keying
- * this off "is there a Google key" meant that adding one — for generation, say —
- * silently re-pointed query embedding at a different vector space from the one
- * the corpus was built in, and produced meaningless similarity scores with no
- * error anywhere.
- */
-export function remoteEmbeddings(): boolean {
-  return serverEnv().EMBEDDING_PROVIDER === 'gemini'
-}
-
-/** Names the embedder in use, for telemetry and for the verification scripts. */
-export function embeddingProviderName(): string {
-  return remoteEmbeddings()
-    ? serverEnv().GEMINI_EMBEDDING_MODEL
-    : `local:${serverEnv().LOCAL_EMBEDDING_MODEL}`
 }
 
 export function requireServiceRoleKey(): string {

@@ -148,15 +148,9 @@ export async function transitionAction(
   if (!result.ok) return { error: result.error }
 
   revalidatePath(`/rfi/${parsed.data.considerationId}`)
-  // An approved response becomes shared precedent, so the search index the whole
-  // organisation reads has genuinely changed.
+  // An approved response becomes shared precedent immediately: retrieval reads
+  // rfi_consideration directly, so there is no index to catch up (ADR-039).
   if (result.to === 'APPROVED') revalidatePath('/search')
 
-  return {
-    moved: { from: result.from, to: result.to },
-    note:
-      result.to === 'APPROVED' && !result.reEmbedded
-        ? `Approved and shared. It is not yet searchable by meaning — ${result.reEmbedNote}.`
-        : undefined,
-  }
+  return { moved: { from: result.from, to: result.to } }
 }

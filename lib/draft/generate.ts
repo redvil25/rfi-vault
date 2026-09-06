@@ -112,7 +112,7 @@ export async function generateGroundedDraft(
   supabase: SupabaseClient<Database>,
   options: GenerateOptions,
 ): Promise<DraftOutcome> {
-  const threshold = serverEnv().DRAFT_SIMILARITY_THRESHOLD
+  const threshold = serverEnv().DRAFT_LEXICAL_THRESHOLD
 
   // --- Retrieve ----------------------------------------------------------
   const retrieval = await retrievePrecedents(context, supabase)

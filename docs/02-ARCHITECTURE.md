@@ -11,7 +11,7 @@
 
 ```
                          ┌──────────────────────────────────────┐
-   Browser (Next.js)     │  Search  ·  Precheck  ·  RFI Detail   │
+   Browser (Next.js)     │  Search  ·  Report  ·  RFI Detail     │
    RSC + shadcn/ui       │  Analytics  ·  Audit                  │
                          └──────────────┬───────────────────────┘
                                         │  typed server actions
@@ -24,17 +24,17 @@
    │                     └───┬───────────────┬──────────────┬────┘
    │                         │               │              │
    │  lib/ai                 │ lib/search    │ lib/precheck │ lib/audit
-   │  ├ embed()              │ ├ vectorTopK  │ ├ lint()     │ └ emit()
-   │  ├ extractFields()      │ ├ ftsTopK     │ ├ mine()     │
-   │  ├ draftResponse()      │ ├ rrfFuse()   │ └ precedent()│
-   │  └ verifyGrounding()    │ └ llmRerank() │              │
+   │  ├ extract()            │ ├ ftsTopK     │ ├ lint()     │ └ emit()
+   │  ├ draftResponse()      │ ├ identTopK   │ ├ mine()     │
+   │  ├ suggest()            │ └ lexical()   │ └ precedent()│
+   │  └ verifyGrounding()    │               │              │
    │                         │               │              │
    ▼                         ▼               ▼              ▼
 ┌────────────────┐   ┌──────────────────────────────────────────┐
-│ Gemini API     │   │  Supabase (eu-central-1)                 │
-│ 2.5-flash      │   │  Postgres 15 + pgvector + tsvector       │
-│ 2.5-pro        │   │  Auth · RLS · Storage (private bucket)   │
-│ embedding-001  │   │  SQL fn: hybrid_search, rfi_stats        │
+│ Groq / Gemini  │   │  Supabase (eu-central-1)                 │
+│ gpt-oss-120b   │   │  Postgres 15 + tsvector + pg_trgm        │
+│ qwen3.8-27b    │   │  Auth · RLS · Storage (private bucket)   │
+│ (no embedder)  │   │  SQL fn: search, lexical_precedents      │
 └────────────────┘   └──────────────────────────────────────────┘
 ```
 
@@ -67,28 +67,25 @@ Upload PDF/DOCX
 ```
 
 Two details worth defending in the demo:
-- **Consideration text and sponsor response are embedded separately.** A user searching "what did we answer about the Italian fee" should match the *question*; a user searching "proof of payment attached" should match the *answer*. Two vectors, two search modes, unioned at fusion time.
 - **The extraction step has a review screen.** Auto-extraction with a confidence gate and a human approval step is exactly how a regulated organisation would deploy this. Showing that screen is worth more than showing a higher extraction accuracy.
 
-### 4.2 Hybrid search (Feature 1)
+### 4.2 Search (Feature 1)
 
 ```
 query
-  ├─ embed(query) ──────────► pgvector HNSW cosine top-50   (semantic)
-  └─ websearch_to_tsquery ──► GIN tsvector top-50           (exact terms, codes, IDs)
-                                     │
-                            Reciprocal Rank Fusion (k=60)
+  ├─ websearch_to_tsquery ──► GIN tsvector          (stemmed words)
+  └─ ILIKE on document_ref / eu_trial_number        (the strings FTS mangles)
                                      │
                             filters applied in SQL (section, MS, date, status, RLS)
                                      │
-                            optional LLM rerank of top 20 (gemini-2.5-flash)
-                                     │
-                            results + confidence score + matched-on explanation
+                            results + matched-on explanation
 ```
 
-Keyword search is not decoration. Regulation codes, POL numbers, trial IDs and document references (`CT-2024-519530-24-00-SM06-001`) are exactly the strings embeddings handle worst. The ablation table in `docs/05-EVALUATION.md` is designed to prove this on our own data.
+Identifier matching is not decoration. Regulation codes, POL numbers, trial IDs and document references (`CT-2024-519530-24-00-SM06-001`) are exactly the strings full text handles worst, and they are 25 of the 41 gold queries.
 
-### 4.3 Pre-submission check (Feature 2)
+There is no vector arm. It was removed in ADR-039 and the ablation table in `docs/05-EVALUATION.md` keeps what that cost: Recall@5 0.795 → 0.634 overall, paraphrase 0.680 → 0.000, identifiers 0.944 → 1.000.
+
+### 4.3 Clinical Report Check (Feature 2)### 4.3 Clinical Report Check (Feature 2)
 
 ```
 Paste one or more application sections, with the Member States and submission type

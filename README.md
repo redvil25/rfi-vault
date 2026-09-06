@@ -16,7 +16,7 @@ Validation RFIs run on a hard clock. Missing it can invalidate the application a
 
 | # | Feature | What it does |
 |---|---|---|
-| 1 | **Hybrid search** | Semantic search for meaning plus keyword search for identifiers and regulation codes, fused with Reciprocal Rank Fusion. Returns precedent considerations, their approved responses, and a calibrated confidence score. |
+| 1 | **Search** | Postgres full text plus an identifier branch for document references and trial numbers — the strings full text handles worst and the ones people actually paste. Returns precedent considerations and their approved responses. The vector arm was removed in ADR-039; docs/05 keeps what that cost. |
 | 2 | **Clinical Report Check** | Upload a clinical document as a PDF before you file it. It sections itself on its own headings. A deterministic lint reads the wording for gaps the writer already admitted (*not attached*, *will be provided*, `XXX`); rules mined from the corpus by (Member State × section × submission type) say what this country actually asks; and cross-section checks catch a protocol version or subject count that disagrees between documents. Every flag carries the past request verbatim, the response that closed it, the artefact to produce and who to chase. Rules unseen for 12 months are greyed, not fired. No score — **62.4% recall at 1.8 themes surfaced per section**, time-travelled, with the uncomputable half named. |
 | 3 | **Grounded draft generation** | RAG over approved, accepted precedent. Cites every claim, flags differences from precedent, and **refuses to draft when no sufficient precedent exists**. An independent verifier model scores every sentence for support. |
 | 6 | **Suggestions** | Upload a request for information that just arrived, as a PDF. Precedent is retrieved from the same application section, and up to three options are proposed — *supply the document*, *justify what was filed*, *commit to a date* — each cited to the records it was built from, each with the reason not to pick it. Below the similarity threshold it refuses and escalates. Citations that name records outside the retrieved set are dropped, and an option left with none is discarded. |
@@ -25,7 +25,7 @@ Validation RFIs run on a hard clock. Missing it can invalidate the application a
 
 ## Stack
 
-Next.js 16 (App Router) · React 19 · TypeScript · Tailwind v4 + shadcn/ui · Supabase Postgres + pgvector + RLS (EU region) · Google Gemini via AI SDK v7 · GitHub Actions CI
+Next.js 16 (App Router) · React 19 · TypeScript · Tailwind v4 + shadcn/ui · Supabase Postgres + tsvector + pg_trgm + RLS (EU region) · Groq via AI SDK v7 · GitHub Actions CI
 
 Deliberately host-agnostic — a plain Next.js application with no platform-specific runtime dependencies.
 

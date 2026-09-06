@@ -109,7 +109,7 @@ Highest-leverage hour of the entire month. See the Mentor Protocol below.
 - **Second mentor session** — bring the working search and let them try it.
 
 ### Sat 22 – Sun 23 Aug
-- Tune RRF `k`; decide on the reranker based on measured nDCG.
+- Tune retrieval on measured nDCG. (Superseded: RRF and the reranker went with the vector arm — ADR-039.)
 - Calibrate the confidence bands against the gold set.
 - Break the ablation down by query type — this becomes the strongest slide in the deck.
 

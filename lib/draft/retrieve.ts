@@ -1,7 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/lib/db/types'
-import { embedQuery, toVectorLiteral } from '@/lib/ai/embed'
-import { embeddingsEnabled, serverEnv } from '@/lib/env'
 import { log } from '@/lib/log'
 import { CATEGORY_BY_ID } from '@/lib/domain/taxonomy'
 import type { Precedent } from './types'
@@ -13,6 +11,12 @@ import type { Precedent } from './types'
  * and restricted to responses that a regulator actually accepted. A rejected
  * answer is not precedent, and the filter is the argument: the repository is
  * only useful as a source of drafts because it knows which responses worked.
+ *
+ * Scoring is lexical, not semantic (ADR-039). `lexical_precedents` returns a
+ * pg_trgm overlap score in 0..1, so the confidence gate still has a number to
+ * refuse on — but it is a number about shared wording, and the field is named
+ * `lexicalScore` throughout so nobody reads it as shared meaning. A paraphrase
+ * with no vocabulary in common scores near zero here and will be refused.
  */
 
 /** Top-k handed to the model. Wider than that and the prompt dilutes. */
@@ -100,41 +104,12 @@ export async function retrievePrecedents(
   target: DraftTarget,
   supabase: SupabaseClient<Database>,
 ): Promise<RetrievalResult> {
-  // Embeddings, not generation. Groq serves no embedding model, so a Groq key
-  // says nothing about whether similarity can be measured (ADR-035).
-  if (!embeddingsEnabled()) {
-    return {
-      ok: false,
-      reason:
-        'Semantic retrieval is not running, so precedent similarity cannot be measured. ' +
-        'Drafting is refused rather than run on keyword matches alone — a keyword hit is ' +
-        'not evidence that a precedent answers this request.',
-      precedents: [],
-      maxSimilarity: null,
-    }
-  }
-
-  let embedding: number[]
-  try {
-    embedding = await embedQuery(target.considerationText)
-  } catch (err) {
-    log.error('draft.embed_failed', { considerationId: target.considerationId }, err)
-    return {
-      ok: false,
-      reason: 'Embedding this consideration failed, so no precedent could be retrieved.',
-      precedents: [],
-      maxSimilarity: null,
-    }
-  }
-
-  const { data, error } = await supabase.rpc('hybrid_search', {
+  const { data, error } = await supabase.rpc('lexical_precedents', {
     query_text: target.considerationText,
-    query_embed: toVectorLiteral(embedding),
-    match_count: RETRIEVE_CANDIDATES,
     f_section: target.sectionCandidates ? undefined : target.section,
     f_part: target.sectionPart,
     f_approved_only: true,
-    rrf_k: serverEnv().RRF_K,
+    match_count: RETRIEVE_CANDIDATES,
   })
 
   if (error) {
@@ -147,22 +122,18 @@ export async function retrievePrecedents(
     }
   }
 
-  // Best cosine per consideration: one record can surface through both its
-  // question and its answer vector (ADR-003).
-  const bestSimilarity = new Map<string, number>()
-  for (const row of data ?? []) {
+  const scored = new Map<string, number>()
+  for (const row of (data ?? []) as { consideration_id: string; lexical_score: number }[]) {
+    // A paste is not a record and cannot match itself, but a filed
+    // consideration can, and a draft built from its own text is circular.
     if (row.consideration_id === target.considerationId) continue
-    const similarity = Number(row.vector_similarity) || 0
-    const prior = bestSimilarity.get(row.consideration_id)
-    if (prior === undefined || similarity > prior) {
-      bestSimilarity.set(row.consideration_id, similarity)
-    }
+    scored.set(row.consideration_id, Number(row.lexical_score) || 0)
   }
 
-  if (bestSimilarity.size === 0) {
+  if (scored.size === 0) {
     return {
       ok: false,
-      reason: 'No approved precedent exists in this application section yet.',
+      reason: 'No approved precedent in this application section shares any wording with this request.',
       precedents: [],
       maxSimilarity: null,
     }
@@ -173,7 +144,7 @@ export async function retrievePrecedents(
   const { data: hydrated, error: hydrateError } = await supabase
     .from('rfi_consideration')
     .select(HYDRATE_SELECT)
-    .in('id', [...bestSimilarity.keys()])
+    .in('id', [...scored.keys()])
 
   if (hydrateError) {
     log.error('draft.hydrate_failed', { considerationId: target.considerationId }, hydrateError)
@@ -197,7 +168,7 @@ export async function retrievePrecedents(
 
     precedents.push({
       considerationId: row.id,
-      similarity: bestSimilarity.get(row.id) ?? 0,
+      similarity: scored.get(row.id) ?? 0,
       considerationText: row.consideration_text,
       sponsorResponseText: row.sponsor_response_text,
       memberState: row.member_state,

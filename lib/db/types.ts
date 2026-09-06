@@ -458,6 +458,20 @@ export type Database = {
         Args: never
         Returns: Database["public"]["Enums"]["team_role"]
       }
+      lexical_precedents: {
+        Args: {
+          f_approved_only?: boolean
+          f_part?: Database["public"]["Enums"]["section_part"]
+          f_section?: string
+          match_count?: number
+          query_text: string
+        }
+        Returns: {
+          consideration_id: string
+          lexical_score: number
+          matched_on: string
+        }[]
+      }
       mined_rules: {
         Args: {
           f_member_states?: string[]

@@ -68,23 +68,14 @@ const nextConfig: NextConfig = {
   // runtimes and model weights at runtime. Neither survives being bundled into
   // a chunk, and the embedding model additionally needs its native or WASM
   // backend resolvable from node_modules rather than from a trace.
-  serverExternalPackages: ["unpdf", "@huggingface/transformers", "onnxruntime-node"],
-
-  // onnxruntime-node loads libonnxruntime.so.1 by path at runtime, and nothing
-  // in the source refers to it, so file tracing cannot see it and leaves it
-  // behind. The symptom is only visible in production: importing
-  // @huggingface/transformers throws "libonnxruntime.so.1: cannot open shared
-  // object file", which takes every embedding path down while the rest of the
-  // page keeps working.
+  // unpdf ships WASM and worker assets that cannot live in a bundle chunk.
+  // Leaving it as a runtime require is the supported arrangement.
   //
-  // Linux only — the darwin and win32 binaries in that package are another
-  // 160 MB and no function will ever load them.
-  outputFileTracingIncludes: {
-    "/search": ["./node_modules/onnxruntime-node/bin/napi-v6/linux/**"],
-    "/suggest": ["./node_modules/onnxruntime-node/bin/napi-v6/linux/**"],
-    "/report-check": ["./node_modules/onnxruntime-node/bin/napi-v6/linux/**"],
-    "/rfi/[id]": ["./node_modules/onnxruntime-node/bin/napi-v6/linux/**"],
-  },
+  // There is no outputFileTracingIncludes any more. It carried the ONNX runtime
+  // binaries for the local embedding model, and dropping embeddings (ADR-039)
+  // took the 53 MB of native libraries, the 110 MB weight download per cold
+  // instance, and three production failures with it.
+  serverExternalPackages: ["unpdf"],
 
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];

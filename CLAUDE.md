@@ -36,11 +36,11 @@
 | UI | Tailwind CSS v4 + shadcn/ui + Recharts |
 | Source control / CI | **GitHub** + GitHub Actions |
 | Hosting | **Undecided — see ADR-011.** Deferred to Phase 3. Any Node host works (Render, Netlify, Cloudflare, self-host). Nothing in the codebase may depend on a specific host. |
-| Database | Supabase Postgres + `pgvector` (HNSW) + `tsvector` full-text, EU region |
+| Database | Supabase Postgres + `tsvector` full-text + `pg_trgm`, EU region. `pgvector` is installed but unused since ADR-039 |
 | Auth | Supabase Auth (email/password + magic link), RBAC via Postgres RLS |
 | File storage | Supabase Storage (private bucket, signed URLs) |
 | LLM | **Groq** (`@ai-sdk/groq`) or Google Gemini (`@ai-sdk/google`), whichever key is set, via **AI SDK v7** — direct provider, no gateway. Groq: `openai/gpt-oss-20b` for extraction/drafting, `openai/gpt-oss-120b` for the verifier pass (ADR-035) |
-| Embeddings | **Local `@huggingface/transformers`** — `Xenova/all-mpnet-base-v2`, 768-dim, no key and nothing leaves the machine. `gemini-embedding-001` is used instead when a Google key is set. Groq serves no embedding model, so this is not optional (ADR-035) |
+| Embeddings | **None.** Retrieval is lexical — full text plus trigram overlap. Removed in ADR-039; what it cost is measured in docs/05 |
 | Validation | Zod v4 on every API boundary |
 | Tests | Vitest (unit) + Playwright (E2E) |
 | CI | GitHub Actions — typecheck, lint, unit, build; E2E enabled in Phase 3 |
@@ -110,7 +110,6 @@ npm run verify:suggest   # live suggestions: the gate, distinct strategies, cita
 npm run setup:storage    # create the private rfi-documents bucket (once per project)
 npm run ingest -- <pdf>  # parse a CTIS RFI export and print the extraction (read-only)
 npm run fixtures:pdf     # regenerate fixtures/rfi-example-ctis.pdf (needs python + reportlab)
-npm run embed            # populate rfi_embedding (needs a real Gemini key)
 npm run eval             # retrieval metrics -> docs/metrics/latest.json + the ablation table
 npm run eval:backtest    # pre-submission check recall, time-travelled; states what it cannot measure
 ```

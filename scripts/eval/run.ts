@@ -18,7 +18,6 @@ import '../load-env'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createServiceClient } from '../../lib/db/service'
-import { aiEnabled } from '../../lib/env'
 import { buildGoldSet, type CorpusRow, type GoldQuery, type QueryType } from './gold'
 import { mean, ndcgAtK, percentile, recallAtK, reciprocalRankAtK, round } from './metrics'
 
@@ -70,32 +69,23 @@ function keywordRetriever(db: Db): Retriever {
   }
 }
 
-function vectorRetriever(db: Db, embed: (q: string) => Promise<string>): Retriever {
+/**
+ * The retriever the confidence gate uses (ADR-039).
+ *
+ * Reported beside keyword search because it answers a different question.
+ * Keyword search ranks *everything* for a browsing human; this filters to
+ * approved, accepted precedent and scores wording overlap, which is what
+ * Features 3 and 6 refuse on. A recall figure for it is a statement about how
+ * often those features will have something to draft from.
+ */
+function lexicalGateRetriever(db: Db): Retriever {
   return async (query) => {
-    const { data, error } = await db.rpc('vector_search', {
-      query_embed: await embed(query),
-      match_count: FETCH_DEPTH,
-    })
-    if (error) throw new Error(`vector_search: ${error.message}`)
-    return dedupe(
-      ((data ?? []) as unknown as { consideration_id: string }[]).map((r) => r.consideration_id),
-    )
-  }
-}
-
-function hybridRetriever(
-  db: Db,
-  embed: (q: string) => Promise<string>,
-  rrfK: number,
-): Retriever {
-  return async (query) => {
-    const { data, error } = await db.rpc('hybrid_search', {
+    const { data, error } = await db.rpc('lexical_precedents', {
       query_text: query,
-      query_embed: await embed(query),
+      f_approved_only: false,
       match_count: FETCH_DEPTH,
-      rrf_k: rrfK,
     })
-    if (error) throw new Error(`hybrid_search: ${error.message}`)
+    if (error) throw new Error(`lexical_precedents: ${error.message}`)
     return dedupe(
       ((data ?? []) as unknown as { consideration_id: string }[]).map((r) => r.consideration_id),
     )
@@ -238,49 +228,19 @@ async function main() {
   const gold = buildGoldSet(corpus, Number(process.env.SEED_RANDOM_SEED ?? 42))
   console.log(`  ${gold.length} gold queries derived from planted structure\n`)
 
-  const { count: embeddingCount } = await db
-    .from('rfi_embedding')
-    .select('id', { count: 'exact', head: true })
-
   const results: ConfigResult[] = []
 
   console.log('Keyword only…')
   results.push(await evaluate('Keyword only (ts_rank_cd)', gold, keywordRetriever(db)))
 
-  const semanticBlocker = !aiEnabled()
-    ? 'GOOGLE_GENERATIVE_AI_API_KEY is not set'
-    : (embeddingCount ?? 0) === 0
-      ? 'rfi_embedding is empty — run `npm run embed`'
-      : null
-
-  if (semanticBlocker) {
-    results.push({ name: 'Vector only (pgvector cosine)', ran: false, reason: semanticBlocker })
-    results.push({ name: 'Hybrid (RRF)', ran: false, reason: semanticBlocker })
-  } else {
-    const { embedQuery, toVectorLiteral } = await import('../../lib/ai/embed')
-    // Each query is embedded once and reused across configurations, so the
-    // comparison is not distorted by embedding latency counted twice.
-    const cache = new Map<string, string>()
-    const embed = async (q: string) => {
-      const hit = cache.get(q)
-      if (hit) return hit
-      const literal = toVectorLiteral(await embedQuery(q))
-      cache.set(q, literal)
-      return literal
-    }
-
-    console.log('Vector only…')
-    results.push(await evaluate('Vector only (pgvector cosine)', gold, vectorRetriever(db, embed)))
-
-    const rrfK = Number(process.env.RRF_K ?? 60)
-    console.log('Hybrid…')
-    results.push(await evaluate(`Hybrid (RRF, k=${rrfK})`, gold, hybridRetriever(db, embed, rrfK)))
-  }
+  console.log('Lexical precedent (the confidence gate)…')
+  results.push(
+    await evaluate('Lexical precedent (trigram + FTS)', gold, lexicalGateRetriever(db)),
+  )
 
   const payload = {
     generatedAt: new Date().toISOString(),
     corpusSize: corpus.length,
-    embeddingCount: embeddingCount ?? 0,
     goldQueries: gold.length,
     goldSource: 'derived from seed ground truth — see scripts/eval/gold.ts',
     cutoffs: { recall: K_RECALL, rank: K_RANK },
@@ -298,12 +258,10 @@ async function main() {
   if (byType) console.log('\nRecall@5 by query type:\n\n' + byType)
 
   console.log(`\nWritten to docs/metrics/latest.json and docs/metrics/${stamp}.json`)
-  if (semanticBlocker) {
-    console.log(
-      `\nOnly the keyword row ran. ${semanticBlocker}.\n` +
-        'The ablation table is the argument for hybrid search — it needs all three rows.',
-    )
-  }
+  console.log(
+    '\nNo vector row: retrieval is lexical (ADR-039). docs/05 keeps the last measured' +
+      '\nhybrid figures, because what that removal cost is part of the argument.',
+  )
 }
 
 main().catch((err) => {

@@ -284,15 +284,9 @@ async function main() {
       `now visible to RA Clinical as ${afterApproval?.[0]?.response_status}`,
     )
 
-    if (approved.ok) {
-      check(
-        aiEnabled()
-          ? 'the approved response was re-embedded and is searchable by meaning'
-          : 're-embedding was skipped honestly, and said so',
-        aiEnabled() ? approved.reEmbedded : !approved.reEmbedded && Boolean(approved.reEmbedNote),
-        approved.reEmbedNote ?? 'indexed',
-      )
-    }
+    // Nothing to assert about indexing any more: retrieval reads
+    // rfi_consideration directly, so approval *is* publication (ADR-039). The
+    // check that matters is the one below — that another team can now see it.
 
     // --- Terminal --------------------------------------------------------
     const filed = await applyTransition(
