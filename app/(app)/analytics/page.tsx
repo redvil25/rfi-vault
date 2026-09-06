@@ -6,24 +6,6 @@ import { EffortModel, MemberStateChart, VolumeChart } from './charts'
 
 export const dynamic = 'force-dynamic'
 
-function Stat({
-  label,
-  value,
-  detail,
-}: {
-  label: string
-  value: string
-  detail?: string
-}) {
-  return (
-    <div className="rounded-lg border border-border bg-surface p-4">
-      <p className="text-[11px] font-medium tracking-wide text-muted uppercase">{label}</p>
-      <p className="mt-1 font-mono text-2xl">{value}</p>
-      {detail && <p className="mt-1 text-xs text-muted">{detail}</p>}
-    </div>
-  )
-}
-
 export default async function AnalyticsPage() {
   const user = await getCurrentUser()
   if (!user) redirect('/sign-in')
@@ -51,7 +33,10 @@ export default async function AnalyticsPage() {
     )
   }
 
-  const { categories, months, memberStates, turnaround, preventability, total } = stats
+  // `turnaround` and `total` are still computed by loadAnalytics — verify:dashboards
+  // asserts them and they carry their own unit tests — but nothing on this page
+  // renders them since the stat cards were removed.
+  const { categories, months, memberStates, preventability } = stats
 
   // Worst-first by how many *distinct trials* an issue touched: 40 occurrences in
   // one trial is a bad month, 40 across 35 trials is a systemic problem.
@@ -60,7 +45,6 @@ export default async function AnalyticsPage() {
     .slice(0, 10)
 
   const worst = recurring[0]
-  const stillOpen = categories.reduce((sum, c) => sum + c.openItems, 0)
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-8">
@@ -71,41 +55,6 @@ export default async function AnalyticsPage() {
           your team&rsquo;s access, so two people can legitimately see different totals.
         </p>
       </header>
-
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat
-          label="Considerations"
-          value={total.toLocaleString('en-GB')}
-          detail={`across ${categories.length} categories`}
-        />
-        <Stat
-          label="Preventable"
-          value={`${Math.round(preventability.share * 100)}%`}
-          detail={
-            preventability.unclassified > 0
-              ? `of ${preventability.classified.toLocaleString('en-GB')} classified, in categories a completeness check would catch`
-              : 'in categories a completeness check would catch'
-          }
-        />
-        <Stat
-          label="Median turnaround"
-          value={turnaround?.medianDays != null ? `${turnaround.medianDays} d` : '—'}
-          detail={
-            turnaround
-              ? `${turnaround.answered} answered, ${turnaround.unanswered} still open`
-              : undefined
-          }
-        />
-        <Stat
-          label="Still open"
-          value={stillOpen.toLocaleString('en-GB')}
-          detail={
-            turnaround
-              ? `${turnaround.answeredLate} of ${turnaround.answered} answered past the due date`
-              : 'awaiting a sponsor response'
-          }
-        />
-      </div>
 
       {/* ------------------------------------------------------- Recurrence */}
       <section className="mt-8">
