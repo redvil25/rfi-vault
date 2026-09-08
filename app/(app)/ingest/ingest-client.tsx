@@ -103,7 +103,16 @@ export function IngestClient() {
   const [docs, setDocs] = useState<ReviewDoc[]>([])
   const [rejected, setRejected] = useState<RejectedUpload[]>([])
   const [progress, setProgress] = useState<Progress | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  /**
+   * A neutral notice, never an error banner.
+   *
+   * Nothing at this step is a failure worth colouring red. A file that cannot
+   * be read, or one whose document reference is already filed, is reported per
+   * file in the list below with its own reason — and "already filed, nothing
+   * changed" is a correct no-op, not a fault. A red box over the top of that
+   * list restated it as a failure and got it wrong.
+   */
+  const [notice, setNotice] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -121,7 +130,7 @@ export function IngestClient() {
 
   function addFiles(incoming: FileList | null) {
     if (!incoming || incoming.length === 0) return
-    setError(null)
+    setNotice(null)
 
     const accepted: File[] = []
     const problems: string[] = []
@@ -159,7 +168,7 @@ export function IngestClient() {
       accepted.length = Math.max(0, room)
     }
 
-    if (problems.length > 0) setError(problems.join(' '))
+    if (problems.length > 0) setNotice(problems.join(' '))
     if (accepted.length > 0) setFiles((prev) => [...prev, ...accepted])
   }
 
@@ -180,11 +189,11 @@ export function IngestClient() {
    */
   async function handleUpload() {
     if (files.length === 0) {
-      setError('Choose at least one PDF to upload.')
+      setNotice('Choose at least one PDF to upload.')
       return
     }
 
-    setError(null)
+    setNotice(null)
     setRejected([])
     const read: ReviewDoc[] = []
     const failed: RejectedUpload[] = []
@@ -242,13 +251,6 @@ export function IngestClient() {
     setDocs(read)
     setRejected(failed)
     setReviewId((n) => n + 1)
-    if (read.length === 0 && failed.length > 0) {
-      setError(
-        failed.length === 1
-          ? 'That file could not be read. Nothing was filed.'
-          : 'None of those files could be read. Nothing was filed.',
-      )
-    }
   }
 
   function startOver(discard: ReviewDoc[] = []) {
@@ -263,7 +265,7 @@ export function IngestClient() {
     setDocs([])
     setRejected([])
     setProgress(null)
-    setError(null)
+    setNotice(null)
     setReviewId((n) => n + 1)
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
@@ -395,9 +397,9 @@ export function IngestClient() {
         </div>
       )}
 
-      {error && (
-        <p role="alert" className="rounded-md bg-risk-soft px-3.5 py-2.5 text-sm text-risk">
-          {error}
+      {notice && (
+        <p role="status" className="rounded-md border border-border px-3.5 py-2.5 text-sm text-muted">
+          {notice}
         </p>
       )}
 
